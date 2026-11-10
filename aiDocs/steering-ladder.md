@@ -64,14 +64,3 @@ The project is currently at the architectural specification phase with an active
         ||================================================||
 ```
 
----
-
-## Alignment Audit
-
-### 1. Where does the Plan not serve the Strategy?
-- **Finding Documentation Gap**: The original implementation plan (`ai/2026-11-09_v1_plan.md`) focused primarily on test runners, move strategies, and screenshot artifacts, omitting an explicit deliverable for logging empirical Playwright synchronization findings. Step 3 of our current Plan remediates this by mandating an architectural findings document.
-- **Animation Timing Temptation**: Strategy strictly bans arbitrary `sleep()` / `waitForTimeout()`. Phase 2 of `v1_plan.md` noted "either wait briefly for CSS transitions to settle or select highest tile." To remain aligned with Strategy, the implementation must use state change verification (coordinate deduplication or DOM event settling) rather than arbitrary sleep delays.
-
-### 2. Where does State show drift from the Plan?
-- **Step 0 Alignment**: There is no code drift because no code exists yet (clean slate).
-- **Directory Nesting Discrepancy**: The workspace has a root folder containing an untracked `aiDocs/` and a nested git repository `2048-bot/` which also contains its own `aiDocs/`. Initializing the project must strictly clarify the working directory (root vs. `2048-bot/`) to prevent fragmented dependencies or misplaced test configs.
