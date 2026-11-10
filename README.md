@@ -56,13 +56,3 @@ The bot operates on a simple feedback loop:
 # Run the 2048 test in headed mode to watch the bot play
 npx playwright test tests/bot-2048.spec.ts --project=chromium --headed
 ```
-
----
-
-## Implementation Milestones
-
-- [ ] **DOM Inspection**: Verify tile markup, score, and game-over/win selectors on the target 2048 site.
-- [ ] **Board Reader**: Build `readBoard()` to parse the 4x4 matrix from tile elements (handling animation overlaps).
-- [ ] **Input & Validation**: Test keyboard dispatch and verify board state changes.
-- [ ] **Game Loop**: Add the main loop with invalid-move fallback and stop conditions.
-- [ ] **Logging & Reporting**: Log move count, score, highest tile reached, and capture final screenshot.

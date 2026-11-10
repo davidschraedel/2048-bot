@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.example
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# AI workspace directories
+# Ignore raw ai/ scratch directory while tracking curated aiDocs/
+ai/
+
+# System and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.log
