@@ -3,7 +3,6 @@ node_modules/
 
 # Environment
 .env
-.env.example
 *.local
 
 # Playwright
@@ -11,6 +10,10 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
 
 # AI workspace directories
 # Ignore raw ai/ scratch directory while tracking curated aiDocs/
