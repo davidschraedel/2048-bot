@@ -121,11 +121,16 @@ export function extractDestinationCoordinate(className: string): TileCoordinate 
  * @returns The authoritative tile for that grid cell.
  */
 export function selectAuthoritativeTile(tilesAtCoord: ParsedTile[]): ParsedTile {
+  if (tilesAtCoord.length === 0) {
+    throw new Error('selectAuthoritativeTile requires at least one tile');
+  }
   if (tilesAtCoord.length === 1) return tilesAtCoord[0];
 
-  // Prioritize tile-merged element
-  const mergedTile = tilesAtCoord.find((t) => t.isMerged);
-  if (mergedTile) return mergedTile;
+  // Prioritize tile-merged elements (take highest value if multiple exist)
+  const mergedTiles = tilesAtCoord.filter((t) => t.isMerged);
+  if (mergedTiles.length > 0) {
+    return mergedTiles.reduce((best, curr) => (curr.value > best.value ? curr : best));
+  }
 
   // Fallback to highest value
   return tilesAtCoord.reduce((best, curr) => (curr.value > best.value ? curr : best));

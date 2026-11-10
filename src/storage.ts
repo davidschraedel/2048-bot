@@ -93,4 +93,6 @@ export async function initCleanSession(page: Page, gameUrl: string): Promise<voi
   await clearLocalStorageAndCookies(page);
   // Reload to ensure 2048 game manager boots from zeroed storage
   await page.reload();
+  // Ensure game engine has completed initialization and rendered initial tiles
+  await page.locator('.tile-container .tile').first().waitFor({ state: 'visible' });
 }
