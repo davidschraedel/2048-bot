@@ -4,13 +4,13 @@ An automated bot designed to play the web version of [2048](https://play2048.co/
 
 ---
 
-## 🎯 Goal
+## Goal
 
 Practice end-to-end browser automation and state-driven decision loops. The script launches a browser, observes the board state in the DOM, chooses a move according to a deterministic strategy, sends arrow keystrokes, and repeats until the game ends or a safety limit is reached.
 
 ---
 
-## ⚙️ How It Works
+## How It Works
 
 The bot operates on a simple feedback loop:
 
@@ -34,7 +34,7 @@ The bot operates on a simple feedback loop:
 
 ---
 
-## 🧠 Move Strategies
+## Move Strategies
 
 - **Phase 1 (Corner / Priority Cycling)**:
   - Prioritize `Down` and `Left` to keep higher-value tiles clustered in a corner.
@@ -45,7 +45,7 @@ The bot operates on a simple feedback loop:
 
 ---
 
-## 🛠️ Stack & Setup
+## Stack & Setup
 
 - **Language & Runner**: TypeScript, `@playwright/test` (Chromium)
 - **Configuration**: Target URL configured via `.env` (`GAME_URL`)
@@ -59,7 +59,7 @@ npx playwright test tests/bot-2048.spec.ts --project=chromium --headed
 
 ---
 
-## 📋 Implementation Milestones
+## Implementation Milestones
 
 - [ ] **DOM Inspection**: Verify tile markup, score, and game-over/win selectors on the target 2048 site.
 - [ ] **Board Reader**: Build `readBoard()` to parse the 4x4 matrix from tile elements (handling animation overlaps).
