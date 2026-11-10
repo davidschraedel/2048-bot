@@ -1,6 +1,6 @@
 # 2048 Playwright Bot
 
-An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/)—no AI, external solvers, or human intervention required.
+An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/), without LLMs, external solvers, or human intervention.
 
 ---
 
