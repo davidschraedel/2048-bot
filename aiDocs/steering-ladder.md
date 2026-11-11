@@ -20,13 +20,14 @@ We operate strictly as an external user via deterministic Playwright automation,
 3. Run execution benchmarks in both headed and headless modes to capture performance metrics and compile an empirical findings document detailing observed Playwright synchronization quirks, bottlenecks, and design recommendations.
 
 ## 6. State
-Phases 1 through 4 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
+Phases 1 through 5 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
 1. **Phase 1 (Environment & Project Setup)**: Complete (`package.json`, `playwright.config.ts`, `tsconfig.json`, `.env`, `src/storage.ts`).
 2. **Phase 2 (DOM Inspection & Selector Mapping)**: Complete (`src/selectors.ts`, destination coordinate resolution, merge deduplication schema).
 3. **Phase 3 (Board State Representation & Parser)**: Complete (`src/board.ts`, `tests/board.spec.ts`).
 4. **Phase 4 (Keypress Dispatch & State Synchronization)**: Complete (`src/input.ts`, `src/sync.ts`, `tests/sync.spec.ts` with zero arbitrary timeouts, double `rAF` settling, latency measurement/logging, and defensive input guards).
+5. **Phase 5 (Deterministic Decision Strategies)**: Complete (`src/strategy.ts`, `tests/strategy.spec.ts` with pure in-memory move validator `getValidMoves`, Phase 1 Corner Priority Cycling, Phase 2 Lookahead Heuristic, strategy registry, and 100% test coverage).
 
-Current milestone: Transitioning to **Phase 5** (Deterministic Decision Strategies). All unit and browser integration tests pass across headed and headless Chromium.
+Current milestone: Transitioning to **Phase 6** (Core Automation Loop & Triple Termination Safety). All 70 unit, algorithmic, and browser integration tests pass across headed and headless Chromium.
 
 ---
 
@@ -65,8 +66,9 @@ Current milestone: Transitioning to **Phase 5** (Deterministic Decision Strategi
         ||                       ||                       ||
         ||================================================||
         ||  6. STATE                                      ||
-        ||  "The eyes see the board and the robot fingers ||
-        ||   can tap and wait! Next: teach how to think!" ||
+        ||  "The eyes see the board, fingers tap and wait,||
+        ||   and the brain knows which moves to pick!     ||
+        ||   Next: put it all together to play the game!" ||
         ||================================================||
 ```
 
