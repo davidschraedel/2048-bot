@@ -6,6 +6,7 @@ import { initCleanSession } from './storage';
 import { getValidMoves, getStrategy, Strategy } from './strategy';
 import { areBoardsEqual, dispatchMoveAndSync } from './sync';
 import { BotConfig, DEFAULT_CONFIG, getBotConfig, GAME_URL } from './config';
+import { captureFinalScreenshot } from './telemetry';
 
 /**
  * Deterministic termination reasons for the 2048 automation loop.
@@ -72,9 +73,9 @@ export interface BotMilestoneEvent {
  * Lifecycle hooks for observability, live logging, and trace milestone throttling.
  */
 export interface BotHooks {
-  onMove?: (event: BotMoveEvent) => void;
-  onMilestone?: (milestone: BotMilestoneEvent) => void;
-  onTermination?: (result: BotRunResult) => void;
+  onMove?: (event: BotMoveEvent) => void | Promise<void>;
+  onMilestone?: (milestone: BotMilestoneEvent) => void | Promise<void>;
+  onTermination?: (result: BotRunResult) => void | Promise<void>;
 }
 
 /**
@@ -358,14 +359,16 @@ export async function runBot(
       moveCount++;
 
       if (hooks?.onMove) {
-        hooks.onMove({
-          moveCount,
-          direction,
-          score: currentState.score,
-          highestTile: currentState.highestTile,
-          latencyMs: moveResult.latencyMs,
-          board: currentState.board,
-        });
+        await Promise.resolve(
+          hooks.onMove({
+            moveCount,
+            direction,
+            score: currentState.score,
+            highestTile: currentState.highestTile,
+            latencyMs: moveResult.latencyMs,
+            board: currentState.board,
+          })
+        );
       }
 
       // Macro milestone reporting
@@ -378,13 +381,15 @@ export async function runBot(
             : 0;
 
         if (hooks?.onMilestone) {
-          hooks.onMilestone({
-            moveCount,
-            score: currentState.score,
-            highestTile: currentState.highestTile,
-            movesPerSecond: Math.round(currentMps * 100) / 100,
-            averageLatencyMs: Math.round(avgLat * 100) / 100,
-          });
+          await Promise.resolve(
+            hooks.onMilestone({
+              moveCount,
+              score: currentState.score,
+              highestTile: currentState.highestTile,
+              movesPerSecond: Math.round(currentMps * 100) / 100,
+              averageLatencyMs: Math.round(avgLat * 100) / 100,
+            })
+          );
         }
       }
     }
@@ -414,8 +419,16 @@ export async function runBot(
     averageLatencyMs,
   };
 
+  if (config.screenshotOnTermination) {
+    try {
+      await captureFinalScreenshot(page, config.screenshotPath);
+    } catch {
+      // Non-fatal screenshot capture
+    }
+  }
+
   if (hooks?.onTermination) {
-    hooks.onTermination(result);
+    await Promise.resolve(hooks.onTermination(result));
   }
 
   return result;

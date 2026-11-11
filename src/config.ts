@@ -59,6 +59,10 @@ export interface BotConfig {
   logEveryMoves: number;
   /** Pacing delay in milliseconds between moves for human visual observation */
   moveDelayMs: number;
+  /** Whether to automatically capture a screenshot on loop termination */
+  screenshotOnTermination: boolean;
+  /** File path where termination screenshot is persisted */
+  screenshotPath: string;
 }
 
 /** Parses and validates integer move cap from environment */
@@ -108,6 +112,11 @@ export const KEEP_PLAYING_ON_WIN =
   process.env.KEEP_PLAYING_ON_WIN === 'true' || process.env.KEEP_PLAYING_ON_WIN === '1';
 export const LOG_EVERY_MOVES = parseTimeout(process.env.LOG_EVERY_MOVES, 100);
 export const MOVE_DELAY_MS = parseTimeout(process.env.MOVE_DELAY_MS, 100);
+export const SCREENSHOT_ON_TERMINATION =
+  process.env.SCREENSHOT_ON_TERMINATION === 'true' ||
+  process.env.SCREENSHOT_ON_TERMINATION === '1';
+export const SCREENSHOT_PATH =
+  process.env.SCREENSHOT_PATH || 'test-results/final-run.png';
 
 /** Default safety thresholds and automation limits */
 export const DEFAULT_CONFIG: BotConfig = {
@@ -119,6 +128,8 @@ export const DEFAULT_CONFIG: BotConfig = {
   keepPlayingOnWin: KEEP_PLAYING_ON_WIN,
   logEveryMoves: LOG_EVERY_MOVES,
   moveDelayMs: MOVE_DELAY_MS,
+  screenshotOnTermination: SCREENSHOT_ON_TERMINATION,
+  screenshotPath: SCREENSHOT_PATH,
 };
 
 /**
@@ -156,6 +167,11 @@ export function getBotConfig(overrides?: Partial<BotConfig>): BotConfig {
   if (merged.strategy !== 'corner' && merged.strategy !== 'lookahead') {
     throw new Error(
       `Configuration Error: Invalid strategy "${merged.strategy}". Supported strategies: "corner", "lookahead".`
+    );
+  }
+  if (!merged.screenshotPath || merged.screenshotPath.trim() === '') {
+    throw new Error(
+      `Configuration Error: screenshotPath cannot be empty.`
     );
   }
 
