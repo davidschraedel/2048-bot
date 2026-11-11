@@ -48,9 +48,9 @@ export const REGEX = {
   /** Matches tile value classes such as 'tile-2', 'tile-2048' */
   tileValue: /\btile-(\d+)\b/,
   /** Matches position classes such as 'tile-position-1-4' (col-row) */
-  tilePosition: /\btile-position-(\d+)-(\d+)\b/g,
-  /** Single instance matcher for coordinate extraction */
-  tilePositionSingle: /\btile-position-(\d+)-(\d+)\b/,
+  tilePosition: /\btile-position-(\d+)-(\d+)\b/,
+  /** Global matcher for extracting multiple position classes */
+  tilePositionGlobal: /\btile-position-(\d+)-(\d+)\b/g,
 } as const;
 
 /** Parsed coordinate on the 4x4 matrix (1-indexed) */
@@ -73,8 +73,7 @@ export interface ParsedTile {
  * E.g., "tile tile-16 tile-position-3-4" -> 16
  */
 export function extractTileValue(className: string, innerText?: string): number {
-  // Filter out non-value helper classes like 'tile-merged', 'tile-new', 'tile-position-x-y'
-  const match = className.match(/\btile-(?!merged|new|position)(\d+)\b/);
+  const match = className.match(REGEX.tileValue);
   if (match && match[1]) {
     return parseInt(match[1], 10);
   }
@@ -96,7 +95,8 @@ export function extractTileValue(className: string, innerText?: string): number 
  * @returns 1-indexed { col, row } destination coordinate or null if missing.
  */
 export function extractDestinationCoordinate(className: string): TileCoordinate | null {
-  const matches = Array.from(className.matchAll(REGEX.tilePosition));
+  // Use a fresh RegExp instance to prevent shared lastIndex state pollution across calls
+  const matches = Array.from(className.matchAll(new RegExp(REGEX.tilePositionGlobal)));
   if (matches.length === 0) return null;
 
   // The final destination class is the last position class found

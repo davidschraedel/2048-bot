@@ -72,10 +72,17 @@ export function cloneBoard(board: Board): Board {
  */
 export function parseScore(scoreText?: string | null): number {
   if (!scoreText) return 0;
-  // Match first contiguous integer sequence (base score)
   const trimmed = scoreText.trim();
-  const match = trimmed.match(/^\d+/) || trimmed.match(/\b\d+\b/);
-  if (!match) return 0;
+  // Strip transient score-addition tokens like "+16" or "+32"
+  const sanitized = trimmed.replace(/\+\d+/g, '').trim();
+  const match = sanitized.match(/\b\d+\b/);
+  if (!match) {
+    // Fallback if scoreText only contained an isolated point addition or pure digits
+    const fallback = trimmed.match(/\b\d+\b/);
+    if (!fallback) return 0;
+    const val = parseInt(fallback[0], 10);
+    return isNaN(val) ? 0 : Math.max(0, val);
+  }
   const val = parseInt(match[0], 10);
   return isNaN(val) ? 0 : Math.max(0, val);
 }
@@ -184,63 +191,72 @@ export function parseGameStateFromRaw(raw: RawDomState): GameState {
  * @returns Authoritative GameState representation.
  */
 export async function readBoard(page: Page): Promise<GameState> {
-  const rawDomState = await page.evaluate(
-    (sel) => {
-      try {
-        // Query all tile elements
-        const tileEls = Array.from(document.querySelectorAll(sel.tile));
-        const tiles = tileEls.map((el) => ({
-          className: el.className || '',
-          innerText: el.textContent?.trim() || '',
-        }));
+  try {
+    const rawDomState = await page.evaluate(
+      (sel) => {
+        try {
+          // Query all tile elements
+          const tileEls = Array.from(document.querySelectorAll(sel.tile));
+          const tiles = tileEls.map((el) => ({
+            className: el.className || '',
+            innerText: el.textContent?.trim() || '',
+          }));
 
-        // Query score container (strip any score-addition animation bubbles)
-        const scoreEl = document.querySelector(sel.scoreContainer);
-        let scoreText = '0';
-        if (scoreEl) {
-          const clone = scoreEl.cloneNode(true) as HTMLElement;
-          const additions = clone.querySelectorAll(sel.scoreAddition);
-          additions.forEach((a) => a.remove());
-          scoreText = clone.textContent?.trim() || '0';
+          // Query score container (strip any score-addition animation bubbles)
+          const scoreEl = document.querySelector(sel.scoreContainer);
+          let scoreText = '0';
+          if (scoreEl) {
+            const clone = scoreEl.cloneNode(true) as HTMLElement;
+            const additions = clone.querySelectorAll(sel.scoreAddition);
+            additions.forEach((a) => a.remove());
+            scoreText = clone.textContent?.trim() || '0';
+          }
+
+          // Terminal game message detection
+          const gameMsgEl = document.querySelector(sel.gameMessage);
+          const isGameOver = Boolean(
+            document.querySelector(sel.gameOverMessage) ||
+              (gameMsgEl && gameMsgEl.classList.contains('game-over'))
+          );
+          const isGameWon = Boolean(
+            document.querySelector(sel.gameWonMessage) ||
+              (gameMsgEl && gameMsgEl.classList.contains('game-won'))
+          );
+
+          return {
+            tiles,
+            scoreText,
+            isGameOver,
+            isGameWon,
+          };
+        } catch {
+          return {
+            tiles: [],
+            scoreText: '0',
+            isGameOver: false,
+            isGameWon: false,
+          };
         }
-
-        // Terminal game message detection
-        const gameMsgEl = document.querySelector(sel.gameMessage);
-        const isGameOver = Boolean(
-          document.querySelector(sel.gameOverMessage) ||
-            (gameMsgEl && gameMsgEl.classList.contains('game-over'))
-        );
-        const isGameWon = Boolean(
-          document.querySelector(sel.gameWonMessage) ||
-            (gameMsgEl && gameMsgEl.classList.contains('game-won'))
-        );
-
-        return {
-          tiles,
-          scoreText,
-          isGameOver,
-          isGameWon,
-        };
-      } catch {
-        return {
-          tiles: [],
-          scoreText: '0',
-          isGameOver: false,
-          isGameWon: false,
-        };
+      },
+      {
+        tile: SELECTORS.tile,
+        scoreContainer: SELECTORS.scoreContainer,
+        scoreAddition: SELECTORS.scoreAddition,
+        gameMessage: SELECTORS.gameMessage,
+        gameOverMessage: SELECTORS.gameOverMessage,
+        gameWonMessage: SELECTORS.gameWonMessage,
       }
-    },
-    {
-      tile: SELECTORS.tile,
-      scoreContainer: SELECTORS.scoreContainer,
-      scoreAddition: SELECTORS.scoreAddition,
-      gameMessage: SELECTORS.gameMessage,
-      gameOverMessage: SELECTORS.gameOverMessage,
-      gameWonMessage: SELECTORS.gameWonMessage,
-    }
-  );
+    );
 
-  return parseGameStateFromRaw(rawDomState);
+    return parseGameStateFromRaw(rawDomState);
+  } catch {
+    return parseGameStateFromRaw({
+      tiles: [],
+      scoreText: '0',
+      isGameOver: false,
+      isGameWon: false,
+    });
+  }
 }
 
 /**

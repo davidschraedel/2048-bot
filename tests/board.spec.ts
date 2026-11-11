@@ -14,7 +14,11 @@ import {
 } from '../src/board';
 import { initCleanSession } from '../src/storage';
 import { GAME_URL } from '../src/config';
-import { SELECTORS } from '../src/selectors';
+import {
+  SELECTORS,
+  extractDestinationCoordinate,
+  extractTileValue,
+} from '../src/selectors';
 
 test.describe('Board Parser - Pure Unit Tests', () => {
   test('creates an empty 4x4 board initialized to 0', () => {
@@ -98,6 +102,12 @@ test.describe('Board Parser - Pure Unit Tests', () => {
     expect(state.board[0][0]).toBe(0);
     expect(state.highestTile).toBe(16);
     expect(state.score).toBe(48);
+
+    // Verify coordinate extraction is stateless and immune to lastIndex state pollution
+    const c1 = extractDestinationCoordinate('tile tile-2 tile-position-1-2');
+    const c2 = extractDestinationCoordinate('tile tile-4 tile-position-3-4 tile-position-4-4');
+    expect(c1).toEqual({ col: 1, row: 2 });
+    expect(c2).toEqual({ col: 4, row: 4 });
   });
 
   test('resolves merge conflicts by prioritizing .tile-merged over transient parents', () => {
@@ -147,6 +157,8 @@ test.describe('Board Parser - Pure Unit Tests', () => {
   test('parses score correctly across variations and ignores animation addition bubbles', () => {
     expect(parseScore('256')).toBe(256);
     expect(parseScore('1024\n+32')).toBe(1024);
+    expect(parseScore('1024+32')).toBe(1024);
+    expect(parseScore('+16\n1024')).toBe(1024);
     expect(parseScore('  2048  ')).toBe(2048);
     expect(parseScore('+16')).toBe(16);
     expect(parseScore('')).toBe(0);
@@ -279,11 +291,17 @@ test.describe('Board Parser - Live Browser Integration', () => {
     expect(gameState.isGameOver).toBe(false);
     expect(gameState.isGameWon).toBe(false);
 
-    // Perform a move and verify readBoard captures the updated state
+    // Perform a move and wait for double rAF settling to ensure DOM actuation has rendered
     await page.keyboard.press('ArrowDown');
-    await page.waitForFunction(
-      (sel) => document.querySelectorAll(sel).length >= 2,
-      SELECTORS.tile
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          });
+        })
     );
 
     const updatedState = await readBoard(page);
