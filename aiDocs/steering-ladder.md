@@ -26,9 +26,9 @@ Phases 1 through 6 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roa
 3. **Phase 3 (Board State Representation & Parser)**: Complete (`src/board.ts`, `tests/board.spec.ts`).
 4. **Phase 4 (Keypress Dispatch & State Synchronization)**: Complete (`src/input.ts`, `src/sync.ts`, `tests/sync.spec.ts` with zero arbitrary timeouts, double `rAF` settling, latency measurement/logging, and defensive input guards).
 5. **Phase 5 (Deterministic Decision Strategies)**: Complete (`src/strategy.ts`, `tests/strategy.spec.ts` with pure in-memory move validator `getValidMoves`, Phase 1 Corner Priority Cycling, Phase 2 Lookahead Heuristic, strategy registry, and 100% test coverage).
-6. **Phase 6 (Core Automation Loop & Triple Termination Safety)**: Complete (`src/config.ts`, `src/bot.ts`, `tests/bot-2048.spec.ts` with pristine session setup, triple termination safety guards [Win, Loss/Deadlock, Move Cap], focus defense, overlay resilience, and end-to-end autonomous loop).
+6. **Phase 6 (Core Automation Loop & Triple Termination Safety)**: Complete (`src/config.ts`, `src/bot.ts`, `tests/bot-2048.spec.ts`, `tests/guards.spec.ts`, `npm run play` with pristine session setup, triple termination safety guards [Win, Loss/Deadlock, Move Cap], visual pacing, post-game inspection, and end-to-end autonomous loop).
 
-Current milestone: Transitioning to **Phase 7** (Observability, Metrics & Telemetry). All 85 unit, algorithmic, browser synchronization, and autonomous loop tests pass across headed and headless Chromium.
+Current milestone: Transitioning to **Phase 7** (Observability, Metrics & Telemetry). All 86 unit, algorithmic, browser synchronization, guard, and autonomous loop tests pass across headed and headless Chromium.
 
 ---
 
