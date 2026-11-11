@@ -50,9 +50,12 @@ The bot operates on a simple feedback loop:
 - **Language & Runner**: TypeScript, `@playwright/test` (Chromium)
 - **Configuration**: Target URL configured via `.env` (`GAME_URL`)
 
-### Running the Bot (Planned)
+### Running the Bot
 
 ```bash
-# Run the 2048 test in headed mode to watch the bot play
-npx playwright test tests/bot-2048.spec.ts --project=chromium --headed
+# Watch the bot play to completion in a real browser window
+npm run play
+
+# Or directly with Playwright:
+npx playwright test tests/bot-2048.spec.ts --headed
 ```

@@ -57,6 +57,8 @@ export interface BotConfig {
   keepPlayingOnWin: boolean;
   /** Step reporting cadence for macro milestones */
   logEveryMoves: number;
+  /** Pacing delay in milliseconds between moves for human visual observation */
+  moveDelayMs: number;
 }
 
 /** Parses and validates integer move cap from environment */
@@ -75,9 +77,9 @@ export function parseMaxMoves(value?: string): number {
 export function parseTimeout(value: string | undefined, defaultMs: number): number {
   if (!value || value.trim() === '') return defaultMs;
   const parsed = parseInt(value.trim(), 10);
-  if (isNaN(parsed) || parsed <= 0) {
+  if (isNaN(parsed) || parsed < 0) {
     throw new Error(
-      `Configuration Error: Invalid timeout value "${value}". Must be a positive integer.`
+      `Configuration Error: Invalid timeout value "${value}". Must be a non-negative integer.`
     );
   }
   return parsed;
@@ -105,6 +107,7 @@ export const ACTIVE_STRATEGY = parseStrategy(
 export const KEEP_PLAYING_ON_WIN =
   process.env.KEEP_PLAYING_ON_WIN === 'true' || process.env.KEEP_PLAYING_ON_WIN === '1';
 export const LOG_EVERY_MOVES = parseTimeout(process.env.LOG_EVERY_MOVES, 100);
+export const MOVE_DELAY_MS = parseTimeout(process.env.MOVE_DELAY_MS, 100);
 
 /** Default safety thresholds and automation limits */
 export const DEFAULT_CONFIG: BotConfig = {
@@ -115,6 +118,7 @@ export const DEFAULT_CONFIG: BotConfig = {
   strategy: ACTIVE_STRATEGY,
   keepPlayingOnWin: KEEP_PLAYING_ON_WIN,
   logEveryMoves: LOG_EVERY_MOVES,
+  moveDelayMs: MOVE_DELAY_MS,
 };
 
 /**
@@ -142,6 +146,11 @@ export function getBotConfig(overrides?: Partial<BotConfig>): BotConfig {
   if (merged.actionTimeoutMs <= 0) {
     throw new Error(
       `Configuration Error: actionTimeoutMs must be greater than 0, got ${merged.actionTimeoutMs}.`
+    );
+  }
+  if (merged.moveDelayMs < 0) {
+    throw new Error(
+      `Configuration Error: moveDelayMs must be non-negative, got ${merged.moveDelayMs}.`
     );
   }
   if (merged.strategy !== 'corner' && merged.strategy !== 'lookahead') {

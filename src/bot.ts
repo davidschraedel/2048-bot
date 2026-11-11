@@ -347,6 +347,11 @@ export async function runBot(
       // -------------------------------------------------------------
       currentState = await readBoard(page);
 
+      // Pacing delay between moves for comfortable human visual observation
+      if (config.moveDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, config.moveDelayMs));
+      }
+
       // -------------------------------------------------------------
       // Increment moveCount & Emit Hooks
       // -------------------------------------------------------------

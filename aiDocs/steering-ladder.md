@@ -6,7 +6,7 @@
 An engineer demonstrating deterministic Playwright automation and state synchronization lacks empirical insight into how effective Playwright is for rapid, closed-loop UI automation and what specific failure modes emerge under real-time DOM mutations. Without a dedicated, interactive testbed, there is no documented evidence or catalog of timing and synchronization pitfalls to inform future automation projects.
 
 ## 2. Vision
-The engineer has clear, evidence-based insight into Playwright's capabilities and limits in fast-cycle, closed-loop browser automation, demonstrated by a bot that plays 2048 autonomously and deterministically without AI or human intervention. A well-documented catalog of observed edge cases, timing bottlenecks, and synchronization patterns exists to directly de-risk and inform future automation projects.
+The engineer has clear, evidence-based insight into Playwright's capabilities and limits in fast-cycle, closed-loop browser automation, demonstrated by a bot that plays 2048 autonomously and deterministically without AI or human intervention. A well-documented catalog of observed edge cases, timing bottlenecks, and synchronization patterns exists to directly de-risk and inform future automation projects. The solution is simple and straightforward.
 
 ## 3. Mission
 We build an autonomous, deterministic 2048 bot using Playwright and TypeScript that continuously reads the live DOM board state and dispatches directional keystrokes without AI or external solvers. In doing so, we stress-test and document Playwright's synchronization limits, animation handling, and failure modes to produce an empirical reference guide for future browser automation systems.
