@@ -1,4 +1,4 @@
-import { Direction, DIRECTIONS } from './input';
+import { Direction, DIRECTIONS, isDirection } from './input';
 import { Board, cloneBoard, createEmptyBoard } from './board';
 
 // Re-export Direction contract so consumers can import directly from strategy
@@ -146,6 +146,12 @@ export function simulateMove(
 ): SimulatedMoveResult {
   validateBoardStructure(board);
 
+  if (!isDirection(direction)) {
+    throw new Error(
+      `simulateMove: Invalid direction "${direction}". Supported directions: ${DIRECTIONS.join(', ')}`
+    );
+  }
+
   const newBoard: Board = createEmptyBoard();
   let anyMoved = false;
   let totalScoreGained = 0;
@@ -196,6 +202,12 @@ export function simulateMove(
         totalScoreGained += scoreGained;
       }
       break;
+    }
+
+    default: {
+      throw new Error(
+        `simulateMove: Unsupported direction "${direction}". Supported directions: ${DIRECTIONS.join(', ')}`
+      );
     }
   }
 
@@ -299,53 +311,72 @@ export function calculateCornerScore(board: Board): number {
  * Calculates row and column monotonicity.
  * Monotonicity measures whether tile values decrease smoothly along rows towards the left
  * and increase downwards along columns, allowing smooth merges without trapped smaller tiles.
+ * Evaluates adjacent non-zero tiles along each line, avoiding distortions from empty cells.
  */
 export function calculateMonotonicity(board: Board): number {
   let score = 0;
 
   // Row monotonicity: prefer values decreasing from left to right (col 0 is larger)
   for (let r = 0; r < 4; r++) {
-    let leftToRightInc = 0;
-    let rightToLeftInc = 0;
-
-    for (let c = 0; c < 3; c++) {
-      const curr = board[r][c] > 0 ? Math.log2(board[r][c]) : 0;
-      const next = board[r][c + 1] > 0 ? Math.log2(board[r][c + 1]) : 0;
-      if (curr > next) {
-        rightToLeftInc += curr - next; // Decreases to the right (larger on left)
-      } else if (next > curr) {
-        leftToRightInc += next - curr; // Increases to the right
-      }
+    const nonZeros: number[] = [];
+    for (let c = 0; c < 4; c++) {
+      if (board[r][c] > 0) nonZeros.push(board[r][c]);
     }
 
-    if (r === 3) {
-      // Anchor row: strictly reward larger on left, heavily penalize reverse
-      score += rightToLeftInc - leftToRightInc * 2;
-    } else {
-      score += Math.max(rightToLeftInc, leftToRightInc) - Math.min(rightToLeftInc, leftToRightInc);
+    if (nonZeros.length > 1) {
+      let leftToRightInc = 0;
+      let rightToLeftInc = 0;
+
+      for (let i = 0; i < nonZeros.length - 1; i++) {
+        const curr = Math.log2(nonZeros[i]);
+        const next = Math.log2(nonZeros[i + 1]);
+        if (curr > next) {
+          rightToLeftInc += curr - next; // Decreases to the right (larger on left)
+        } else if (next > curr) {
+          leftToRightInc += next - curr; // Increases to the right
+        }
+      }
+
+      if (r === 3) {
+        // Anchor row: strictly reward larger on left, heavily penalize reverse
+        score += rightToLeftInc - leftToRightInc * 2;
+      } else {
+        score +=
+          Math.max(rightToLeftInc, leftToRightInc) -
+          Math.min(rightToLeftInc, leftToRightInc);
+      }
     }
   }
 
   // Column monotonicity: prefer values increasing from top to bottom (row 3 is larger)
   for (let c = 0; c < 4; c++) {
-    let topToBottomInc = 0;
-    let bottomToTopInc = 0;
-
-    for (let r = 0; r < 3; r++) {
-      const curr = board[r][c] > 0 ? Math.log2(board[r][c]) : 0;
-      const next = board[r + 1][c] > 0 ? Math.log2(board[r + 1][c]) : 0;
-      if (next > curr) {
-        topToBottomInc += next - curr; // Increases downwards (larger on bottom)
-      } else if (curr > next) {
-        bottomToTopInc += curr - next; // Increases upwards
-      }
+    const nonZeros: number[] = [];
+    for (let r = 0; r < 4; r++) {
+      if (board[r][c] > 0) nonZeros.push(board[r][c]);
     }
 
-    if (c === 0) {
-      // Anchor column: strictly reward larger on bottom, heavily penalize reverse
-      score += topToBottomInc - bottomToTopInc * 2;
-    } else {
-      score += Math.max(topToBottomInc, bottomToTopInc) - Math.min(topToBottomInc, bottomToTopInc);
+    if (nonZeros.length > 1) {
+      let topToBottomInc = 0;
+      let bottomToTopInc = 0;
+
+      for (let i = 0; i < nonZeros.length - 1; i++) {
+        const curr = Math.log2(nonZeros[i]);
+        const next = Math.log2(nonZeros[i + 1]);
+        if (next > curr) {
+          topToBottomInc += next - curr; // Increases downwards (larger on bottom)
+        } else if (curr > next) {
+          bottomToTopInc += curr - next; // Increases upwards
+        }
+      }
+
+      if (c === 0) {
+        // Anchor column: strictly reward larger on bottom, heavily penalize reverse
+        score += topToBottomInc - bottomToTopInc * 2;
+      } else {
+        score +=
+          Math.max(topToBottomInc, bottomToTopInc) -
+          Math.min(topToBottomInc, bottomToTopInc);
+      }
     }
   }
 
@@ -458,7 +489,7 @@ export const cornerCycleStrategy = cornerPriorityStrategy;
  * Options for lookahead heuristic strategy.
  */
 export interface LookaheadOptions {
-  /** Search lookahead depth (1 = immediate post-move board; 2 = two-move lookahead). Defaults to 2. */
+  /** Search lookahead depth (1 = immediate post-move board; 2 = two-move lookahead). Defaults to 1. */
   depth?: 1 | 2;
   /** Custom heuristic weights */
   weights?: HeuristicWeights;
@@ -470,7 +501,7 @@ export interface LookaheadOptions {
  * Creates a configured Lookahead Heuristic Strategy instance.
  */
 export function createLookaheadStrategy(options?: LookaheadOptions): Strategy {
-  const depth = options?.depth ?? 2;
+  const depth = options?.depth ?? 1;
   const weights = options?.weights ?? DEFAULT_HEURISTIC_WEIGHTS;
   const discount = options?.discount ?? 0.85;
 
@@ -501,10 +532,7 @@ export function createLookaheadStrategy(options?: LookaheadOptions): Strategy {
 
       if (depth >= 2) {
         const followUpMoves = getValidMoves(sim1.board);
-        if (followUpMoves.length === 0) {
-          // Severely penalize moves that lead directly to a deadlocked board
-          totalScore -= 100_000;
-        } else {
+        if (followUpMoves.length > 0) {
           let maxFollowUp = -Infinity;
           for (const nextDir of followUpMoves) {
             const sim2 = simulateMove(sim1.board, nextDir);
@@ -538,16 +566,15 @@ export function createLookaheadStrategy(options?: LookaheadOptions): Strategy {
 }
 
 /**
- * Phase 2 Strategy: Lookahead Heuristic Strategy (default configuration: depth 2).
+ * Phase 2 Strategy: Lookahead Heuristic Strategy (default configuration: depth 1).
  *
  * Pure algorithmic simulation:
  * 1. Simulates valid directional shifts in memory.
  * 2. Evaluates empty cell count, corner tile magnitude, monotonicity, and smoothness.
- * 3. Looks ahead to subsequent move potential to avoid dead ends.
- * 4. Selects the move yielding the maximum heuristic score.
+ * 3. Selects the move yielding the maximum heuristic score.
  */
 export const lookaheadHeuristicStrategy: Strategy = createLookaheadStrategy({
-  depth: 2,
+  depth: 1,
 });
 
 /**
@@ -575,6 +602,12 @@ export const STRATEGIES: Record<StrategyName, Strategy> = {
  * @returns The resolved Strategy function.
  */
 export function getStrategy(name: string): Strategy {
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    const valid = Object.keys(STRATEGIES).join(', ');
+    throw new Error(
+      `getStrategy: Strategy name must be a non-empty string. Available strategies: ${valid}`
+    );
+  }
   const normalized = name.toLowerCase().trim() as StrategyName;
   const strat = STRATEGIES[normalized];
   if (!strat) {

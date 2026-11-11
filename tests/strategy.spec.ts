@@ -215,6 +215,13 @@ test.describe('Phase 5: Deterministic Decision Strategies - Unit Tests', () => {
       expect(res.scoreGained).toBe(0);
       expect(res.board).toEqual(blockedDown);
     });
+
+    test('rejects invalid or unsupported directions with descriptive error', () => {
+      const board = createEmptyBoard();
+      expect(() =>
+        simulateMove(board, 'InvalidDirection' as unknown as Direction)
+      ).toThrow(/Invalid direction "InvalidDirection"/);
+    });
   });
 
   test.describe('getValidMoves & canMove', () => {
@@ -438,6 +445,41 @@ test.describe('Phase 5: Deterministic Decision Strategies - Unit Tests', () => {
       expect(scoreMonotonic).toBeGreaterThan(scoreChaotic);
     });
 
+    test('ignores empty cells between non-zero tiles when calculating monotonicity', () => {
+      // Row 3: [256, 0, 128, 64] should be cleanly monotonic (descending rightwards)
+      const boardWithGaps: Board = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [256, 0, 128, 64],
+      ];
+
+      const score = calculateMonotonicity(boardWithGaps);
+      // Non-zeros are 256 -> 128 -> 64 (drops of 1 and 1). Row 3 score = 1 + 1 = 2
+      expect(score).toBe(2);
+    });
+
+    test('avoids false zero-drop inflation on isolated corner tile', () => {
+      const singleCorner: Board = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [512, 0, 0, 0],
+      ];
+
+      const fullyPopulated: Board = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [512, 256, 128, 64],
+      ];
+
+      // Single tile has no relative monotonicity (score = 0)
+      expect(calculateMonotonicity(singleCorner)).toBe(0);
+      // Fully populated monotonic line has positive score (+3)
+      expect(calculateMonotonicity(fullyPopulated)).toBe(3);
+    });
+
     test('calculateSmoothness rewards adjacent identical mergeable pairs', () => {
       const smoothBoard: Board = [
         [2, 2, 0, 0],
@@ -582,6 +624,21 @@ test.describe('Phase 5: Deterministic Decision Strategies - Unit Tests', () => {
 
     test('throws descriptive error on invalid strategy name', () => {
       expect(() => getStrategy('minimax')).toThrow(/Unknown strategy "minimax"/);
+    });
+
+    test('rejects null, undefined, or empty strategy names with descriptive error', () => {
+      expect(() => getStrategy('')).toThrow(
+        /Strategy name must be a non-empty string/
+      );
+      expect(() => getStrategy('   ')).toThrow(
+        /Strategy name must be a non-empty string/
+      );
+      expect(() => getStrategy(null as unknown as string)).toThrow(
+        /Strategy name must be a non-empty string/
+      );
+      expect(() => getStrategy(undefined as unknown as string)).toThrow(
+        /Strategy name must be a non-empty string/
+      );
     });
   });
 
