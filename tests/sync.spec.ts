@@ -5,6 +5,51 @@ import { Board, createEmptyBoard, cloneBoard, readBoard } from '../src/board';
 import { initCleanSession } from '../src/storage';
 import { GAME_URL } from '../src/config';
 
+/**
+ * Helper determining a direction that is guaranteed to cause a tile slide or merge
+ * on an initial board. Eliminates intermittent test flakiness if initial tiles
+ * happen to spawn along a single blocked boundary.
+ */
+function findGuaranteedMove(board: Board): Direction {
+  // Check ArrowDown: valid if any column has a tile with an empty cell or equal tile below it
+  for (let c = 0; c < 4; c++) {
+    let seenTile = false;
+    for (let r = 0; r < 4; r++) {
+      if (board[r][c] > 0) seenTile = true;
+      else if (seenTile) return 'ArrowDown';
+    }
+    for (let r = 0; r < 3; r++) {
+      if (board[r][c] > 0 && board[r][c] === board[r + 1][c]) return 'ArrowDown';
+    }
+  }
+
+  // Check ArrowUp: valid if any column has a tile with an empty cell or equal tile above it
+  for (let c = 0; c < 4; c++) {
+    let seenTile = false;
+    for (let r = 3; r >= 0; r--) {
+      if (board[r][c] > 0) seenTile = true;
+      else if (seenTile) return 'ArrowUp';
+    }
+    for (let r = 3; r > 0; r--) {
+      if (board[r][c] > 0 && board[r][c] === board[r - 1][c]) return 'ArrowUp';
+    }
+  }
+
+  // Check ArrowLeft: valid if any row has a tile with an empty cell or equal tile to its left
+  for (let r = 0; r < 4; r++) {
+    let seenTile = false;
+    for (let c = 3; c >= 0; c--) {
+      if (board[r][c] > 0) seenTile = true;
+      else if (seenTile) return 'ArrowLeft';
+    }
+    for (let c = 3; c > 0; c--) {
+      if (board[r][c] > 0 && board[r][c] === board[r - 1][c]) return 'ArrowLeft';
+    }
+  }
+
+  return 'ArrowRight';
+}
+
 test.describe('Phase 4: Input & State Synchronization - Unit Tests', () => {
   test('areBoardsEqual correctly identifies identical and distinct boards', () => {
     const b1 = createEmptyBoard();
@@ -76,6 +121,36 @@ test.describe('Phase 4: Input & State Synchronization - Unit Tests', () => {
       dispatchKeypress(fakePage, 'InvalidDirection' as unknown as Direction)
     ).rejects.toThrow('Invalid direction "InvalidDirection"');
   });
+
+  test('waitForStateSettling rejects missing page or invalid previousBoard', async () => {
+    await expect(
+      waitForStateSettling(null as unknown as any, createEmptyBoard())
+    ).rejects.toThrow('Page instance must be provided');
+
+    const fakePage = {} as unknown as any;
+    await expect(
+      waitForStateSettling(fakePage, null as unknown as Board)
+    ).rejects.toThrow('A valid 4x4 previousBoard matrix must be provided');
+
+    await expect(
+      waitForStateSettling(fakePage, [] as unknown as Board)
+    ).rejects.toThrow('A valid 4x4 previousBoard matrix must be provided');
+
+    await expect(
+      waitForStateSettling(fakePage, [[1, 2]] as unknown as Board)
+    ).rejects.toThrow('A valid 4x4 previousBoard matrix must be provided');
+  });
+
+  test('dispatchMoveAndSync rejects missing page or invalid previousBoard', async () => {
+    await expect(
+      dispatchMoveAndSync(null as unknown as any, 'ArrowDown', createEmptyBoard())
+    ).rejects.toThrow('Page instance must be provided');
+
+    const fakePage = { keyboard: { press: async () => {} } } as unknown as any;
+    await expect(
+      dispatchMoveAndSync(fakePage, 'ArrowDown', null as unknown as Board)
+    ).rejects.toThrow('A valid 4x4 previousBoard matrix must be provided');
+  });
 });
 
 test.describe('Phase 4: Input & State Synchronization - Live Browser Integration', () => {
@@ -87,23 +162,32 @@ test.describe('Phase 4: Input & State Synchronization - Live Browser Integration
     const initialState = await readBoard(page);
     expect(initialState.board.flat().filter((v) => v > 0).length).toBeGreaterThanOrEqual(2);
 
-    // 3. Dispatch a move and deterministically sync settled state
-    const moveResult = await dispatchMoveAndSync(page, 'ArrowDown', initialState.board);
+    // 3. Determine a guaranteed move direction for the initial board
+    const firstMoveDir = findGuaranteedMove(initialState.board);
 
-    // 4. Verify settling metrics and latency
-    expect(moveResult.direction).toBe('ArrowDown');
+    // 4. Dispatch move with latency logger callback enabled
+    const logMessages: string[] = [];
+    const moveResult = await dispatchMoveAndSync(page, firstMoveDir, initialState.board, {
+      logger: (msg) => logMessages.push(msg),
+    });
+
+    // 5. Verify settling metrics and latency
+    expect(moveResult.direction).toBe(firstMoveDir);
     expect(moveResult.latencyMs).toBeGreaterThan(0);
-    // Latency should be reasonable under local execution (typically 10ms - 500ms)
     expect(moveResult.latencyMs).toBeLessThan(3000);
+    expect(logMessages.length).toBe(2);
+    expect(logMessages.some((msg) => msg.includes('StateSettling'))).toBe(true);
+    expect(logMessages.some((msg) => msg.includes(`Dispatched ${firstMoveDir}`))).toBe(true);
 
-    // 5. Read settled board and confirm mutation
+    // 6. Read settled board and confirm mutation
     const afterFirstMove = await readBoard(page);
     expect(areBoardsEqual(initialState.board, afterFirstMove.board)).toBe(false);
     expect(afterFirstMove.score).toBeGreaterThanOrEqual(initialState.score);
 
-    // 6. Execute a second move (e.g. ArrowLeft) to verify multi-move synchronization stability
-    const secondMoveResult = await dispatchMoveAndSync(page, 'ArrowLeft', afterFirstMove.board);
-    expect(secondMoveResult.direction).toBe('ArrowLeft');
+    // 7. Execute a second move to verify multi-move synchronization stability
+    const secondMoveDir = findGuaranteedMove(afterFirstMove.board);
+    const secondMoveResult = await dispatchMoveAndSync(page, secondMoveDir, afterFirstMove.board);
+    expect(secondMoveResult.direction).toBe(secondMoveDir);
     expect(secondMoveResult.latencyMs).toBeGreaterThan(0);
 
     const afterSecondMove = await readBoard(page);
@@ -114,8 +198,10 @@ test.describe('Phase 4: Input & State Synchronization - Live Browser Integration
     await initCleanSession(page, GAME_URL);
     const beforeState = await readBoard(page);
 
+    const validDir = findGuaranteedMove(beforeState.board);
+
     // Dispatch keypress directly
-    await dispatchKeypress(page, 'ArrowDown');
+    await dispatchKeypress(page, validDir);
 
     // Await state settling
     const syncResult = await waitForStateSettling(page, beforeState.board);
@@ -126,3 +212,4 @@ test.describe('Phase 4: Input & State Synchronization - Live Browser Integration
     expect(areBoardsEqual(beforeState.board, afterState.board)).toBe(false);
   });
 });
+
