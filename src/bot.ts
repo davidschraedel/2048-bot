@@ -159,6 +159,12 @@ export async function initBotSession(
   const state = await readBoard(page);
 
   // Pristine session verification
+  if (state.score !== 0) {
+    throw new Error(
+      `initBotSession: Expected initial score to be 0, got ${state.score}.`
+    );
+  }
+
   const nonZeroTiles = state.board.flat().filter((val) => val > 0);
   if (nonZeroTiles.length < 2) {
     throw new Error(
@@ -176,6 +182,10 @@ export async function initBotSession(
 
   if (state.isGameOver) {
     throw new Error('initBotSession: Pristine board unexpectedly reports isGameOver = true.');
+  }
+
+  if (state.isGameWon) {
+    throw new Error('initBotSession: Pristine board unexpectedly reports isGameWon = true.');
   }
 
   return state;
@@ -231,8 +241,9 @@ export async function runBot(
       if (currentState.isGameWon) {
         if (config.keepPlayingOnWin) {
           const keepPlayingBtn = page.locator(SELECTORS.keepPlayingButton);
-          if (await keepPlayingBtn.isVisible().catch(() => false)) {
-            await keepPlayingBtn.click().catch(() => {});
+          try {
+            await keepPlayingBtn.waitFor({ state: 'visible', timeout: 2000 });
+            await keepPlayingBtn.click();
             // Await game-won modal clearance
             await page
               .waitForFunction(
@@ -242,6 +253,14 @@ export async function runBot(
               )
               .catch(() => {});
             currentState = await readBoard(page);
+          } catch {
+            // Keep playing button could not be activated
+          }
+
+          if (currentState.isGameWon) {
+            // If win modal persists, terminate cleanly to avoid looping
+            terminationReason = 'GameWon';
+            break;
           }
         } else {
           terminationReason = 'GameWon';
@@ -291,22 +310,33 @@ export async function runBot(
         });
       } catch (syncError) {
         // Defensive synchronization recovery: check if terminal state arrived during move
+        await dismissUnexpectedModals(page);
         await ensureActiveFocus(page);
         const recoveredState = await readBoard(page);
 
         if (recoveredState.isGameOver || recoveredState.isGameWon) {
           currentState = recoveredState;
+          moveLatencies.push(config.settleTimeoutMs);
+          moveCount++;
           continue; // Next iteration will halt cleanly via Guard 1 or Guard 2
         }
 
         // If board did mutate despite sync timeout, continue smoothly
         if (!areBoardsEqual(recoveredState.board, currentState.board)) {
           currentState = recoveredState;
+          moveLatencies.push(config.settleTimeoutMs);
           moveCount++;
           continue;
         }
 
-        throw syncError;
+        // Single retry after restoring focus and dismissing potential overlays
+        try {
+          moveResult = await dispatchMoveAndSync(page, direction, currentState.board, {
+            timeoutMs: config.settleTimeoutMs,
+          });
+        } catch {
+          throw syncError;
+        }
       }
 
       // Record move latency

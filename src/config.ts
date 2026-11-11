@@ -61,8 +61,8 @@ export interface BotConfig {
 
 /** Parses and validates integer move cap from environment */
 export function parseMaxMoves(value?: string): number {
-  if (!value) return 3000;
-  const parsed = parseInt(value, 10);
+  if (!value || value.trim() === '') return 3000;
+  const parsed = parseInt(value.trim(), 10);
   if (isNaN(parsed) || parsed <= 0) {
     throw new Error(
       `Configuration Error: Invalid MAX_MOVES value "${value}". Must be a positive integer.`
@@ -73,8 +73,8 @@ export function parseMaxMoves(value?: string): number {
 
 /** Parses and validates millisecond timeout from environment */
 export function parseTimeout(value: string | undefined, defaultMs: number): number {
-  if (!value) return defaultMs;
-  const parsed = parseInt(value, 10);
+  if (!value || value.trim() === '') return defaultMs;
+  const parsed = parseInt(value.trim(), 10);
   if (isNaN(parsed) || parsed <= 0) {
     throw new Error(
       `Configuration Error: Invalid timeout value "${value}". Must be a positive integer.`
@@ -142,6 +142,11 @@ export function getBotConfig(overrides?: Partial<BotConfig>): BotConfig {
   if (merged.actionTimeoutMs <= 0) {
     throw new Error(
       `Configuration Error: actionTimeoutMs must be greater than 0, got ${merged.actionTimeoutMs}.`
+    );
+  }
+  if (merged.strategy !== 'corner' && merged.strategy !== 'lookahead') {
+    throw new Error(
+      `Configuration Error: Invalid strategy "${merged.strategy}". Supported strategies: "corner", "lookahead".`
     );
   }
 

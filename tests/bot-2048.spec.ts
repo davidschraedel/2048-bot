@@ -29,13 +29,16 @@ test.describe('Phase 6: Core Automation Loop & Triple Termination Safety', () =>
     test('parses valid and default configuration correctly', () => {
       expect(parseMaxMoves('1500')).toBe(1500);
       expect(parseMaxMoves(undefined)).toBe(3000);
+      expect(parseMaxMoves('   ')).toBe(3000);
 
       expect(parseTimeout('8000', 5000)).toBe(8000);
       expect(parseTimeout(undefined, 5000)).toBe(5000);
+      expect(parseTimeout('   ', 5000)).toBe(5000);
 
       expect(parseStrategy('corner')).toBe('corner');
       expect(parseStrategy('LOOKAHEAD')).toBe('lookahead');
       expect(parseStrategy(undefined)).toBe('lookahead');
+      expect(parseStrategy('   ')).toBe('lookahead');
     });
 
     test('rejects invalid maxMoves, timeouts, and strategies with fast-fail errors', () => {
@@ -63,6 +66,9 @@ test.describe('Phase 6: Core Automation Loop & Triple Termination Safety', () =>
       );
       expect(() => getBotConfig({ actionTimeoutMs: 0 })).toThrow(
         'actionTimeoutMs must be greater than 0'
+      );
+      expect(() => getBotConfig({ strategy: 'invalid' as any })).toThrow(
+        'Invalid strategy "invalid"'
       );
     });
   });
@@ -133,6 +139,45 @@ test.describe('Phase 6: Core Automation Loop & Triple Termination Safety', () =>
 
       expect(result.totalMoves).toBe(0);
       expect(result.terminationReason).toBe('GameOver');
+    });
+
+    test('Guard 2 (Loss/Deadlock): halts immediately when board is deadlocked (zero valid moves)', async ({
+      page,
+    }) => {
+      await initBotSession(page, GAME_URL);
+
+      // Inject 16 alternating tiles so that no moves are possible, without .game-over class
+      await page.evaluate((sel) => {
+        const container = document.querySelector(sel.tileContainer);
+        if (container) {
+          container.innerHTML = '';
+          const matrix = [
+            [2, 4, 2, 4],
+            [4, 2, 4, 2],
+            [2, 4, 2, 4],
+            [4, 2, 4, 2],
+          ];
+          for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 4; c++) {
+              const tile = document.createElement('div');
+              tile.className = `tile tile-${matrix[r][c]} tile-position-${c + 1}-${r + 1}`;
+              const inner = document.createElement('div');
+              inner.className = 'tile-inner';
+              inner.textContent = matrix[r][c].toString();
+              tile.appendChild(inner);
+              container.appendChild(tile);
+            }
+          }
+        }
+      }, SELECTORS);
+
+      const result = await runBot(page, {
+        maxMoves: 10,
+        strategy: 'lookahead',
+      });
+
+      expect(result.totalMoves).toBe(0);
+      expect(result.terminationReason).toBe('Deadlocked');
     });
 
     test('Guard 1 (Win): halts cleanly on win when keepPlayingOnWin is false', async ({
