@@ -52,7 +52,3 @@ export async function dispatchKeypress(
   await page.keyboard.press(direction);
 }
 
-/**
- * Alias for dispatchKeypress for flexible caller conventions.
- */
-export const pressDirection = dispatchKeypress;

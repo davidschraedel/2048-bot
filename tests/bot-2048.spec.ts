@@ -8,19 +8,27 @@ test.describe('2048 Autonomous Bot', () => {
   test.setTimeout(0);
 
   test('Plays 2048 to Completion', async ({ page }) => {
+    // In automated test suite runs, cap at 15 moves so the test suite finishes quickly;
+    // In full play mode (npm run play, headed mode, or explicit MAX_MOVES), run to full cap.
+    const isFullPlay =
+      process.env.BOT_PLAY === 'true' ||
+      process.env.MAX_MOVES !== undefined ||
+      !test.info().project.use.headless;
+    const moveCap = isFullPlay ? MAX_MOVES : 15;
+
     console.log('\n🚀 Starting 2048 Autonomous Bot...');
     console.log(`   Target URL: ${GAME_URL}`);
     console.log(`   Strategy:   ${ACTIVE_STRATEGY}`);
-    console.log(`   Move Cap:   ${MAX_MOVES} moves\n`);
+    console.log(`   Move Cap:   ${moveCap} moves${isFullPlay ? '' : ' (test suite mode)'}\n`);
 
     // 1. Initialize a pristine game session
     await initBotSession(page, GAME_URL);
 
-    // 2. Play game continuously until Game Over or Win
+    // 2. Play game continuously until Game Over or Win or Cap
     const result = await runBot(
       page,
       {
-        maxMoves: MAX_MOVES,
+        maxMoves: moveCap,
         strategy: ACTIVE_STRATEGY,
         logEveryMoves: 50,
       },

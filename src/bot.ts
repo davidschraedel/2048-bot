@@ -421,5 +421,3 @@ export async function runBot(
   return result;
 }
 
-/** Alias for runBot */
-export const runBotLoop = runBot;

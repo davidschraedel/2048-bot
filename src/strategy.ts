@@ -480,10 +480,6 @@ export const cornerPriorityStrategy: Strategy = (
   return moves[0];
 };
 
-/**
- * Alias for cornerPriorityStrategy matching common naming conventions.
- */
-export const cornerCycleStrategy = cornerPriorityStrategy;
 
 /**
  * Options for lookahead heuristic strategy.
@@ -577,10 +573,6 @@ export const lookaheadHeuristicStrategy: Strategy = createLookaheadStrategy({
   depth: 1,
 });
 
-/**
- * Alias for lookaheadHeuristicStrategy.
- */
-export const lookaheadStrategy = lookaheadHeuristicStrategy;
 
 /**
  * Available strategy names for configuration and test runners.

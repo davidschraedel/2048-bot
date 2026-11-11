@@ -15,10 +15,8 @@ import {
   calculateSmoothness,
   evaluateBoard,
   cornerPriorityStrategy,
-  cornerCycleStrategy,
   createLookaheadStrategy,
   lookaheadHeuristicStrategy,
-  lookaheadStrategy,
   STRATEGIES,
   getStrategy,
 } from '../src/strategy';
@@ -375,11 +373,6 @@ test.describe('Phase 5: Deterministic Decision Strategies - Unit Tests', () => {
       expect(cornerPriorityStrategy(board)).toBe('ArrowDown');
     });
 
-    test('verifies cornerCycleStrategy alias works identically', () => {
-      const board = createEmptyBoard();
-      board[1][1] = 2;
-      expect(cornerCycleStrategy(board)).toBe('ArrowDown');
-    });
   });
 
   test.describe('Phase 2 Strategy: Lookahead Heuristic', () => {
