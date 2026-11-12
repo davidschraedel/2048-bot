@@ -11,7 +11,7 @@ The project challenged Playwright with an intensive, real-time closed-loop autom
 * Operating strictly as an external agent reading live DOM elements and dispatching authentic keyboard inputs (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`).
 * Maintaining a continuous cycle of **DOM Read -> Pure Move Validation -> Algorithmic Decision -> Keystroke Dispatch -> State Settling** across hundreds to thousands of moves.
 * Zero internal game-engine variable hooks (no access to `window.gameManager`).
-* Zero arbitrary sleeps (`page.waitForTimeout()` strictly prohibited).
+* Zero arbitrary sleeps for state synchronization (`page.waitForTimeout()` strictly prohibited; optional `MOVE_DELAY_MS` pacing is used only for human visual observation and set to `0` during benchmarks).
 * Zero external computer vision models or AI solvers.
 
 ### Primary Insights Summary
@@ -20,10 +20,10 @@ The project challenged Playwright with an intensive, real-time closed-loop autom
 | :--- | :--- | :--- |
 | **DOM Mutation Timing** | 2048 retains multiple coordinate classes (`tile-position-1-2 tile-position-1-3`) on moving tiles and creates 3 simultaneous DOM elements at a single coordinate during merges. | Multi-class extraction targeting the final position token; merge deduplication schema prioritizing `.tile-merged` and falling back to `Math.max()`. |
 | **CDP Roundtrip Overhead** | Querying individual tiles via Playwright `Locator` APIs incurs a **7x to 9.3x latency penalty** (~7.0–8.4ms vs ~0.9–1.0ms) due to repeated Chrome DevTools Protocol serialization hops. | Single batch `page.evaluate()` call that executes inside Chromium's V8 engine and returns the entire serialized board state in <1ms. |
-| **Animation Settling** | Fixed timeout sleeps either introduce massive idle latency or trigger race conditions when frame drops occur. Polling via CDP floods the WebSocket pipe. | In-browser `page.waitForFunction()` polling on `requestAnimationFrame` with in-page board differencing, settled by a double `rAF` layout completion barrier. |
+| **Animation Settling** | Fixed timeout sleeps either introduce idle latency or risk race conditions when frame drops occur. Polling via CDP floods the WebSocket pipe. | In-browser `page.waitForFunction()` polling on `requestAnimationFrame` with in-page board differencing, settled by a double `rAF` layout commit barrier. |
 | **Headed vs. Headless** | Raw throughput is nearly identical (**19.12 MPS headed vs. 19.35 MPS headless**, ~1.01x speedup). Headless Chromium still synchronizes to a virtual 60Hz compositor clock. | Headless eliminates OS display compositor overhead, reducing frame delta jitter by **8.3x** (0.06ms vs 0.50ms) and stabilizing p90 latency. |
-| **Input Queue Saturation** | Dispatching keystrokes while tiles slide causes 2048's `InputManager` to drop events, creating immediate state desynchronization. | Synchronous state settling barrier enforcing that every keystroke awaits DOM mutation before subsequent moves are evaluated. |
-| **Runner Memory Safety** | Logging every move via `test.step()` exhausts Playwright's trace memory buffer in under 1,000 moves, causing V8 heap out-of-memory (OOM) crashes. | Telemetry throttling reserving `test.step()` for macro milestones (initialization, every 100 moves, final run summary). |
+| **Input Queue Saturation** | Dispatching keystrokes before the previous move mutates the board causes 2048's `InputManager` or timing windows to drop/miss updates, creating state desynchronization. | Synchronous state settling barrier enforcing that every keystroke awaits DOM mutation before subsequent moves are evaluated. |
+| **Runner Memory Safety** | Recording full Playwright traces or wrapping every move in `test.step()` causes step/snapshot metadata to grow linearly across multi-thousand-move games. | Trace capture disabled (`trace: 'off'`) and `test.step()` throttled to macro milestones (initialization, every 100 moves, final run summary). |
 
 ---
 
@@ -37,9 +37,9 @@ All empirical metrics and timing distributions were recorded on the following ba
 * **Runtime**: Node.js `v24.13.0`
 * **Test Framework**: `@playwright/test` `^1.65.0`
 * **Browser Engine**: Chromium 143+ (Playwright bundled build)
-* **Target Application**: [play2048.co](https://play2048.co/) / Gabriele Cirulli 2048 engine
+* **Target Application**: Original Gabriele Cirulli DOM 2048 engine ([gabrielecirulli.github.io/2048/](https://gabrielecirulli.github.io/2048/), with `setupGameRouting()` blocking the client-side redirect to `play2048.co` and third-party ad/analytics domains)
 * **Active Decision Strategy**: Lookahead Heuristic (smoothness, monotonicity, corner anchoring, empty cell maximization)
-* **Visual Pacing**: `MOVE_DELAY_MS=0` (raw browser throughput)
+* **Visual Pacing**: `MOVE_DELAY_MS=0` (raw browser throughput; defaults to `100` ms during interactive `npm run play` runs)
 
 ### Closed-Loop Automation Flow
 
@@ -199,9 +199,9 @@ if (scoreEl) {
 
 Closed-loop automation differs fundamentally from standard end-to-end testing. While typical E2E tests execute a sequence of distinct actions with human-scale pacing, a game bot executes thousands of rapid cycles where every action depends strictly on the settled result of the previous action.
 
-### 4.1. The Failure of `page.waitForTimeout()`
+### 4.1. The Failure of `page.waitForTimeout()` for Synchronization
 
-Using fixed sleep timers (e.g. `await page.waitForTimeout(50)`) represents the most common anti-pattern in browser automation:
+Using fixed sleep timers for state synchronization (e.g. `await page.waitForTimeout(50)`) represents a major anti-pattern in browser automation (whereas explicit, optional visual pacing delays like `MOVE_DELAY_MS=100` in headed play run *after* DOM settling solely for human observation):
 
 1. **Throughput Destruction**: Adding 50ms of static sleep limits the theoretical maximum throughput to 20 MPS. In practice, with CDP overhead, throughput collapses to 5–8 MPS. Over a 2,000-move game, static sleeps introduce over **100 seconds of pure idle waste**.
 2. **Brittleness Under Frame Jitter**: If the browser experiences a garbage collection pause or background CPU spike, an animation may take 65ms instead of 50ms. The sleep expires prematurely, the bot reads an unsettled intermediate state, and the decision algorithm fails.
@@ -226,31 +226,37 @@ while (!hasStateChanged(previousBoard)) {
 
 ### 4.3. In-Browser Synchronization via `page.waitForFunction`
 
-The robust architectural solution executes the polling predicate **inside the browser's V8 event loop**, delegating the scheduling to the browser itself:
+The robust architectural solution executes the polling predicate **inside the browser's V8 event loop** (as implemented in `waitForStateSettling()` in `src/sync.ts`), delegating the scheduling to the browser itself:
 
 ```typescript
 await page.waitForFunction(
   (args) => {
-    // 1. Check terminal messages
-    if (document.querySelector(args.sel.gameOver) || document.querySelector(args.sel.gameWon)) {
-      return true;
-    }
-    // 2. Parse tiles directly in page context and diff against previousBoard
-    const currentBoard = parseBoardFromDom();
-    if (!areBoardsEqual(currentBoard, args.previousBoard)) {
-      // 3. Double rAF layout settling barrier
+    // 1. Check terminal messages (with double rAF settling)
+    if (
+      document.querySelector(args.sel.gameOverMessage) ||
+      document.querySelector(args.sel.gameWonMessage)
+    ) {
       return new Promise<boolean>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve(true));
-        });
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+      });
+    }
+    // 2. Parse .tile-container .tile classes in-page using destination coordinate +
+    //    .tile-merged deduplication, and diff against args.previousBoard
+    const mutated = hasBoardMutatedInDom(args.previousBoard, args.sel, args.classes);
+    if (mutated) {
+      // 3. Double rAF layout commit barrier
+      return new Promise<boolean>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
       });
     }
     return false;
   },
-  { previousBoard, sel: SELECTORS },
+  { previousBoard, sel: SELECTORS, classes: CLASSES },
   { polling: 'raf', timeout: 5000 }
 );
 ```
+
+*(Note: `src/sync.ts` inlines the DOM tile parser directly inside the `page.waitForFunction` callback so it has zero external helper dependencies inside the browser context.)*
 
 #### Why This Works
 1. **Zero CDP Roundtrips During Waiting**: While waiting for the board to change, zero WebSocket messages cross the network boundary. Chromium checks the condition on every animation frame natively.
@@ -258,31 +264,32 @@ await page.waitForFunction(
 
 ---
 
-### 4.4. The Double `requestAnimationFrame` Settling Barrier
+### 4.4. The Double `requestAnimationFrame` Layout Commit Barrier
 
-Why is a single `requestAnimationFrame` insufficient?
+Why is a single `requestAnimationFrame` insufficient, and what does double `rAF` actually guarantee?
 
-* **Frame 1**: Triggered immediately before the browser calculates layout and styles for the upcoming paint. The DOM mutation has occurred, but CSS transforms (tile sliding coordinates) and reflows are actively being calculated.
-* **Frame 2**: Executes after the layout and compositing operations of the previous frame are finalized. Waiting for the second `rAF` guarantees that the browser's internal layout tree and computed styles are fully settled before control returns to Node.js.
+* **Frame 1**: Triggered before the browser completes layout and paint for the upcoming frame after a DOM mutation.
+* **Frame 2**: Executes after the layout recalculation and style commit of the first frame have completed. Waiting for the second `rAF` guarantees that the browser has flushed pending DOM class/attribute updates and layout geometry before control returns to Node.js.
 
-Empirical testing confirmed that a single `rAF` occasionally yielded intermediate CSS transform states where tiles were in mid-transit. A **double `rAF`** completely eliminated transient position parsing glitches across >50,000 recorded moves.
+Importantly, double `rAF` (~17–33 ms depending on frame phase) does **not** wait for 2048's full 100ms CSS slide/merge transition or delayed parent-element destruction (`element.remove()` at ~100ms) to finish—which is why our benchmark runs achieve ~49ms average roundtrips despite 100ms CSS transitions. Rather, double `rAF` ensures the DOM class updates have committed cleanly, while our parser (`extractDestinationCoordinate` + `selectAuthoritativeTile`) handles any still-animating or ghost DOM nodes deterministically. Across all recorded benchmark runs (574 moves: 391 headed + 183 headless) and integration test runs, this combination produced zero transient-position parsing errors.
 
 ---
 
 ### 4.5. The Physical Throughput Ceiling
 
-Under authentic closed-loop automation, there is a hard physical upper bound on moves per second (MPS):
+Under authentic closed-loop automation synchronized to `rAF`, cycle latency is governed by frame boundaries:
 
 $$\text{Minimum Cycle Latency} = \Delta t_{\text{dispatch}} + \Delta t_{\text{engine}} + \Delta t_{\text{double-rAF}} + \Delta t_{\text{batch-eval}}$$
 
 * Keystroke dispatch over CDP: ~1–3 ms
 * 2048 game engine step & DOM write: ~2–5 ms
-* Double `rAF` synchronization (2 frames @ 60Hz): ~33.3 ms
+* Double `rAF` synchronization at 60Hz:
+  * **From an external CDP keypress** (arriving mid-frame): the first `rAF` waits only the remainder of the current frame (`0–16.67 ms`), plus `16.67 ms` for the second `rAF` (`~16.7–33.3 ms`, ~25 ms expected; or ~33.3–50 ms if the engine write misses the current frame deadline).
+  * **From inside an active `rAF` callback** (as measured by `measureRenderingPerformance()`): `~33.3 ms` (`2 × 16.67 ms`).
 * Batch evaluate state readback: ~1 ms
-* **Theoretical Minimum Latency**: $\approx 37.3\text{ ms to } 42.5\text{ ms}$
-* **Theoretical Maximum Throughput**: $\approx \frac{1000\text{ ms}}{40\text{ ms}} \approx 24\text{ to } 26\text{ MPS}$
+* **Best-Case Cycle Floor**: $\approx 21\text{ ms to } 36\text{ ms}$ (observed benchmark minimums: **35.54 ms** headed, **36.31 ms** headless), with typical 3-frame closed-loop cycles averaging **49.15–49.65 ms** (~20 MPS).
 
-Our empirical benchmark achieved **19.12 to 19.35 MPS**, operating at **75% to 80% of the theoretical physical ceiling** of a 60Hz browser engine.
+Our empirical benchmark achieved **19.12 to 19.35 MPS**, matching a steady 3-frame (~50ms) cadence at 60Hz.
 
 ---
 
@@ -331,7 +338,7 @@ Playwright's modern documentation strongly encourages the use of `Locator` objec
 
 ### 6.1. Empirical Overhead Measurements
 
-We benchmarked reading the active board state via individual `Locator` element queries against a single batch `page.evaluate()` call across 30 identical trials:
+We benchmarked reading the active board state via individual `Locator` element queries against a single batch `page.evaluate()` call across 15 iterations per browser mode (30 total trials across headed and headless):
 
 | Browser Mode | Single Batch `page.evaluate()` | Playwright `Locator` Queries | Overhead Ratio |
 | :--- | :--- | :--- | :--- |
@@ -416,46 +423,47 @@ Running this routine during session initialization and defensively every 25 move
 
 Playwright includes powerful tracing capabilities (`trace: 'on'`, `test.step()`) that record screenshots, DOM snapshots, and action metadata for post-mortem debugging. In high-frequency automation, tracing becomes a critical failure vector.
 
-### 8.1. Trace Buffer Exhaustion in High-Cycle Automations
+### 8.1. Trace Buffer Growth in High-Cycle Automations
 
-When running a 2048 game to completion, a competent algorithm executes between **1,500 and 4,000 moves**.
+When running a 2048 game to completion or up to the `MAX_MOVES = 3000` safety cap, the bot executes hundreds to thousands of move cycles:
 
 ```text
 Action Count in Standard E2E Test vs. Closed-Loop Bot:
-Standard E2E Test:   10 – 50 actions      -> Trace Size: 2 MB – 10 MB
-Closed-Loop Bot:     3,000 moves x 4 acts -> 12,000 actions -> Trace Size: >1.5 GB!
+Standard E2E Test:   10 – 50 actions
+Closed-Loop Bot:     Up to 3,000 moves × multiple Playwright calls/move -> ~10,000+ actions
 ```
 
-#### The Failure Mode
-If the test wraps every individual move in `test.step('Move X: ArrowDown', ...)`:
-* Playwright accumulates execution contexts, serialized action parameters, and DOM diffs in Node.js memory.
-* Node.js V8 heap memory grows linearly by ~0.8MB per move.
-* By move ~1,200, the process consumes over 1.4GB of RAM.
-* Between moves 1,500 and 2,000, Node.js throws an unrecoverable `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`.
+#### The Hazard
+If Playwright tracing is enabled (`trace: 'on'`) or the test wraps every individual move in `test.step('Move X: ArrowDown', ...)`:
+* Playwright accumulates step entries, serialized action metadata, and (when tracing is enabled) DOM snapshots/screenshots in memory for every step/action.
+* Memory consumption grows linearly with move count over multi-thousand-move sessions, risking trace buffer bloat and Node.js heap pressure.
 
 ---
 
 ### 8.2. Macro Milestone Throttling Pattern
 
-To maintain trace utility without exhausting process memory, tracing must be throttled to **macro milestones**:
+To keep Playwright runner overhead bounded across 3,000+ move runs without disabling high-level observability:
+1. Disable Playwright trace recording in `playwright.config.ts` (`trace: 'off'`).
+2. Throttle `test.step()` to **macro milestones** (every 100 moves in full play, as configured in `tests/bot-2048.spec.ts`), while streaming lightweight single-line telemetry directly to `stdout`:
 
 ```typescript
 // ANTI-PATTERN: Wrapping every move
 for (let move = 0; move < maxMoves; move++) {
-  await test.step(`Move ${move}`, async () => { ... }); // OOM Crash!
+  await test.step(`Move ${move}`, async () => { /* Accumulates per-move step metadata */ });
 }
 
-// RECOMMENDED PATTERN: Macro milestone throttling
+// RECOMMENDED PATTERN: Macro milestone throttling (tests/bot-2048.spec.ts)
 if (moveCount % 100 === 0) {
-  await test.step(`Milestone: Move ${moveCount} (Score: ${score}, Highest: ${highestTile})`, async () => {
-    // Record summary milestone data only
+  await test.step(`Macro Milestone: Move ${moveCount} (Score: ${score}, Highest: ${highestTile})`, async () => {
+    console.log(formatMilestoneBanner(milestone));
   });
 }
 ```
 
-#### Empirical Results
-* **Unthrottled Tracing**: Heap exhausted at move ~1,600 (Heap size: >2,048 MB).
-* **Macro Throttled (every 100 moves)**: Heap stabilized at **65 MB to 85 MB** across 4,000+ moves with flat, bounded garbage collection cycles.
+#### Verified Safeguards
+* **Playwright Config (`playwright.config.ts`)**: `timeout: 0`, `trace: 'off'`.
+* **Macro Throttling (`tests/bot-2048.spec.ts`)**: `milestoneInterval = isFullPlay ? 100 : 10` (caps `test.step()` calls to <=30 across a 3,000-move run).
+* **Bounded Heap Growth (`tests/acceptance.spec.ts`)**: Verified `< 64 MB` steady-state Node.js heap growth between consecutive 3,200+ move `runBot()` passes (6,400+ total moves with per-move telemetry formatting and 100-move milestone callbacks).
 
 ---
 
@@ -467,8 +475,8 @@ Based on the empirical findings cataloged above, this section provides an action
 
 | Category | Anti-Pattern (Do NOT Do) | Recommended Design Pattern (DO) | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Waiting** | `await page.waitForTimeout(100)` | `await page.waitForFunction(predicate, args, { polling: 'raf' })` | Eliminates idle latency waste; adapts dynamically to actual browser render speed. |
-| **Settling** | Single `requestAnimationFrame` check | Double `requestAnimationFrame` settling barrier | Guarantees both layout computation and CSS transition rasterization have finalized. |
+| **Waiting** | `await page.waitForTimeout(100)` for sync | `await page.waitForFunction(predicate, args, { polling: 'raf' })` | Eliminates idle sync latency waste; adapts dynamically to actual browser render speed. |
+| **Settling** | Single `requestAnimationFrame` check | Double `requestAnimationFrame` commit barrier | Guarantees DOM class updates and layout calculations have committed for paint before readback. |
 | **DOM Queries** | Looping over individual `page.locator()` elements in closed loops | Single batch `page.evaluate()` returning a serialized plain object | Avoids 7x–9x CDP roundtrip latency penalty; executes state parsing in <1ms. |
 | **Coord Extraction** | Matching first occurrence of coordinate class (`tile-position-(\d+)-(\d+)`) | Extracting all position matches and selecting the **last** match | Captures final destination coordinate, ignoring transient departure classes. |
 | **Merge Detection** | Summing all DOM tiles at a coordinate or reading first element | Prioritizing `.tile-merged` and breaking ties with `Math.max()` | Resolves the 3-element merge collision state deterministically. |
