@@ -1,13 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import {
   Board,
   createEmptyBoard,
   readBoard,
 } from '../src/board';
 import { initBotSession, runBot } from '../src/bot';
-import { GAME_URL } from '../src/config';
+import { DEFAULT_CONFIG, GAME_URL } from '../src/config';
+import { Direction } from '../src/input';
 import { SELECTORS } from '../src/selectors';
 import {
   cornerPriorityStrategy,
@@ -40,13 +41,148 @@ function collectTsFiles(dirPath: string): string[] {
 }
 
 /**
- * Strips single-line and block comments from TypeScript source text
- * so static policy checks evaluate actual executable code rather than docstrings.
+ * Strips single-line and block comments from TypeScript source text while preserving
+ * string and template literals so URLs ('https://...') or globs ('**' + '/*') do not
+ * corrupt comment detection.
  */
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '');
+  let out = '';
+  let i = 0;
+  const len = source.length;
+
+  while (i < len) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    // Preserve single-quoted, double-quoted, and template literals
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch;
+      out += ch;
+      i++;
+      while (i < len) {
+        const c = source[i];
+        out += c;
+        if (c === '\\' && i + 1 < len) {
+          out += source[i + 1];
+          i += 2;
+          continue;
+        }
+        i++;
+        if (c === quote) break;
+      }
+      continue;
+    }
+
+    // Strip single-line comments
+    if (ch === '/' && next === '/') {
+      i += 2;
+      while (i < len && source[i] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    // Strip block comments
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < len && !(source[i] === '*' && source[i + 1] === '/')) {
+        i++;
+      }
+      i += 2;
+      out += ' ';
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+/**
+ * Creates a deterministic seeded tile spawner and an in-memory mock Playwright Page
+ * so runBot() can be stress-tested across 3,000+ moves offline without browser overhead.
+ */
+function createMock2048Page(initialSeed: number): { page: Page; resetBoard: () => void } {
+  let seed = initialSeed;
+  const nextRand = (): number => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+
+  let board: Board = createEmptyBoard();
+  let score = 0;
+  let isGameOver = false;
+
+  const spawnTile = (b: Board): void => {
+    const empties: Array<{ r: number; c: number }> = [];
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        if (b[r][c] === 0) empties.push({ r, c });
+      }
+    }
+    if (empties.length === 0) return;
+    const cell = empties[Math.floor(nextRand() * empties.length)];
+    b[cell.r][cell.c] = nextRand() < 0.9 ? 2 : 4;
+  };
+
+  const resetBoard = (): void => {
+    board = createEmptyBoard();
+    score = 0;
+    isGameOver = false;
+    spawnTile(board);
+    spawnTile(board);
+  };
+
+  resetBoard();
+
+  const mockPage = {
+    on: () => mockPage,
+    off: () => mockPage,
+    bringToFront: async () => {},
+    locator: () => ({ focus: async () => {} }),
+    keyboard: {
+      press: async (dir: string) => {
+        const sim = simulateMove(board, dir as Direction);
+        if (sim.moved) {
+          board = sim.board;
+          score += sim.scoreGained;
+          spawnTile(board);
+          if (getValidMoves(board).length === 0) {
+            isGameOver = true;
+          }
+        }
+      },
+    },
+    waitForFunction: async () => {},
+    evaluate: async (_fn: unknown, arg?: Record<string, unknown>) => {
+      // readBoard() passes the selectors object containing `tile`
+      if (arg && typeof arg === 'object' && 'tile' in arg) {
+        const tiles: Array<{ className: string; innerText: string }> = [];
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            const val = board[r][c];
+            if (val > 0) {
+              tiles.push({
+                className: `tile tile-${val} tile-position-${c + 1}-${r + 1}`,
+                innerText: String(val),
+              });
+            }
+          }
+        }
+        return {
+          tiles,
+          scoreText: String(score),
+          isGameOver,
+          isGameWon: false,
+        };
+      }
+      return undefined;
+    },
+  } as unknown as Page;
+
+  return { page: mockPage, resetBoard };
 }
 
 /**
@@ -149,9 +285,9 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 2. Zero-Sleep Policy & Zero-CDP-Flood Synchronization
+  // 2. Zero-Sleep Synchronization Policy & Visual Pacing Configuration
   // ---------------------------------------------------------------------------
-  test('2. Zero-Sleep Policy: zero waitForTimeout calls and zero synchronization sleeps', () => {
+  test('2. Zero-Sleep Synchronization: zero waitForTimeout calls and zero sync sleeps', () => {
     const srcFiles = collectTsFiles(path.join(REPO_ROOT, 'src'));
     const testFiles = collectTsFiles(path.join(REPO_ROOT, 'tests')).filter(
       (file) => !file.endsWith('acceptance.spec.ts')
@@ -176,6 +312,23 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
     expect(syncCode).toContain('waitForFunction');
     expect(syncCode).toContain("polling: 'raf'");
     expect(syncCode).toContain('requestAnimationFrame');
+
+    // Only bot.ts may use setTimeout, and strictly for optional post-move visual pacing (config.moveDelayMs > 0)
+    for (const file of srcFiles) {
+      const base = path.basename(file);
+      const code = stripComments(fs.readFileSync(file, 'utf-8'));
+      expect(code, `Unexpected setInterval in ${base}`).not.toMatch(/\bsetInterval\s*\(/);
+      if (base !== 'bot.ts') {
+        expect(code, `Unexpected setTimeout in ${base}`).not.toMatch(/\bsetTimeout\s*\(/);
+      } else {
+        const timeoutMatches = code.match(/\bsetTimeout\s*\(/g) ?? [];
+        expect(timeoutMatches.length).toBe(1);
+        expect(code).toContain('if (config.moveDelayMs > 0)');
+      }
+    }
+
+    // Visual pacing defaults to 100ms for headed observation
+    expect(DEFAULT_CONFIG.moveDelayMs).toBe(100);
   });
 
   // ---------------------------------------------------------------------------
@@ -189,11 +342,26 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
       expect(code, `Prohibited gameManager access in ${path.basename(file)}`).not.toMatch(
         /gameManager/i
       );
+      expect(code, `Prohibited HTMLActuator access in ${path.basename(file)}`).not.toMatch(
+        /HTMLActuator/i
+      );
+      expect(code, `Prohibited KeyboardInputManager access in ${path.basename(file)}`).not.toMatch(
+        /KeyboardInputManager/i
+      );
       expect(code, `Prohibited localStorage.getItem in ${path.basename(file)}`).not.toMatch(
         /localStorage\??\.getItem/
       );
       expect(code, `Prohibited localStorage.setItem in ${path.basename(file)}`).not.toMatch(
         /localStorage\??\.setItem/
+      );
+      expect(code, `Prohibited sessionStorage.getItem in ${path.basename(file)}`).not.toMatch(
+        /sessionStorage\??\.getItem/
+      );
+      expect(code, `Prohibited sessionStorage.setItem in ${path.basename(file)}`).not.toMatch(
+        /sessionStorage\??\.setItem/
+      );
+      expect(code, `Prohibited synthetic dispatchEvent in ${path.basename(file)}`).not.toMatch(
+        /\bdispatchEvent\s*\(/
       );
     }
 
@@ -246,7 +414,7 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
   // ---------------------------------------------------------------------------
   // 5. Memory & Trace Safety Configuration + 3,000+ Move Bound
   // ---------------------------------------------------------------------------
-  test('5. Memory & Trace Safety: runner timeout 0, trace off, macro throttling, 3,000+ move stability', () => {
+  test('5. Memory & Trace Safety: runner timeout 0, trace off, macro throttling, 3,000+ move stability', async () => {
     const pwConfig = fs.readFileSync(
       path.join(REPO_ROOT, 'playwright.config.ts'),
       'utf-8'
@@ -259,51 +427,83 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
       'utf-8'
     );
     expect(botSpec).toContain('test.setTimeout(0)');
-    expect(botSpec).toContain('milestoneInterval = isFullPlay ? 100 : 10');
+    expect(botSpec).toMatch(/isFullPlay\s*\?\s*100\s*:/);
 
-    // Stress-test 3,200 move decisions, simulations, and telemetry formatting in memory
-    // to confirm bounded heap usage without memory leaks or OOM exhaustion.
+    // Exercise the actual runBot() loop, per-move telemetry formatting, and 100-move
+    // macro milestone throttling across two 3,200+ move passes (6,400+ moves total)
+    // to verify bounded steady-state heap growth without OOM or linear leaks.
     const startHeapMb = process.memoryUsage().heapUsed / (1024 * 1024);
-    let totalSimulatedMoves = 0;
 
-    for (let gameIdx = 0; totalSimulatedMoves < 3200; gameIdx++) {
-      const sim = runSeededSimulation(lookaheadHeuristicStrategy, 1000 + gameIdx, 1000);
-      totalSimulatedMoves += sim.moves;
-      const line = formatLiveStatusLine({
-        moveCount: totalSimulatedMoves,
-        direction: 'ArrowDown',
-        score: sim.score,
-        highestTile: sim.highestTile,
-        latencyMs: 18,
-        board: createEmptyBoard(),
-      });
-      expect(line.length).toBeGreaterThan(0);
-    }
+    const runMovePass = async (seedBase: number) => {
+      let passMoves = 0;
+      let passMilestones = 0;
+      let lastSummary: Parameters<typeof formatRunSummary>[0] | null = null;
 
-    const summaryText = formatRunSummary({
-      finalBoard: [
-        [2, 4, 8, 16],
-        [4, 16, 32, 64],
-        [8, 32, 64, 128],
-        [512, 256, 128, 64],
-      ],
-      totalMoves: totalSimulatedMoves,
-      finalScore: 12000,
-      highestTile: 512,
-      durationMs: 60000,
-      movesPerSecond: 53.3,
-      averageLatencyMs: 18.5,
-      moveLatencies: [18, 19, 18],
-      terminationReason: 'MoveCapReached',
-    });
+      for (let gameIdx = 0; passMoves < 3200; gameIdx++) {
+        const { page: mockPage } = createMock2048Page(seedBase + gameIdx);
+        const remainingToTarget = 3200 - passMoves;
+        let gameMilestones = 0;
 
-    expect(totalSimulatedMoves).toBeGreaterThanOrEqual(3000);
-    expect(summaryText).toContain('MoveCapReached');
+        const result = await runBot(
+          mockPage,
+          {
+            maxMoves: Math.max(remainingToTarget, 1000),
+            strategy: 'lookahead',
+            moveDelayMs: 0,
+            logEveryMoves: 100,
+            screenshotOnTermination: false,
+          },
+          {
+            onMove: (event) => {
+              const line = formatLiveStatusLine(event);
+              expect(line.length).toBeGreaterThan(0);
+            },
+            onMilestone: (milestone) => {
+              expect(milestone.moveCount % 100).toBe(0);
+              gameMilestones++;
+              passMilestones++;
+            },
+          }
+        );
 
+        expect(gameMilestones).toBe(Math.floor(result.totalMoves / 100));
+        expect(result.moveLatencies.length).toBe(result.totalMoves);
+        passMoves += result.totalMoves;
+        lastSummary = {
+          finalBoard: result.finalBoard,
+          totalMoves: passMoves,
+          finalScore: result.finalScore,
+          highestTile: result.highestTile,
+          durationMs: result.durationMs,
+          movesPerSecond: result.movesPerSecond,
+          averageLatencyMs: result.averageLatencyMs,
+          moveLatencies: result.moveLatencies,
+          terminationReason: result.terminationReason,
+        };
+      }
+
+      return { passMoves, passMilestones, lastSummary: lastSummary! };
+    };
+
+    const pass1 = await runMovePass(1000);
+    const midHeapMb = process.memoryUsage().heapUsed / (1024 * 1024);
+
+    const pass2 = await runMovePass(5000);
     const endHeapMb = process.memoryUsage().heapUsed / (1024 * 1024);
-    const heapDeltaMb = endHeapMb - startHeapMb;
-    // Bounded memory growth across 3,200+ moves
-    expect(heapDeltaMb).toBeLessThan(64);
+
+    expect(pass1.passMoves).toBeGreaterThanOrEqual(3000);
+    expect(pass2.passMoves).toBeGreaterThanOrEqual(3000);
+    expect(pass1.passMilestones).toBeGreaterThan(0);
+    expect(pass2.passMilestones).toBeGreaterThan(0);
+
+    const summaryText = formatRunSummary(pass2.lastSummary);
+    expect(summaryText).toContain('Termination Reason');
+
+    const totalHeapDeltaMb = endHeapMb - startHeapMb;
+    const steadyStateDeltaMb = endHeapMb - midHeapMb;
+    // Steady-state heap growth between pass 1 and pass 2 must stay bounded (V8 GC reuses heap)
+    expect(steadyStateDeltaMb).toBeLessThan(64);
+    expect(totalHeapDeltaMb).toBeLessThan(256);
   });
 
   // ---------------------------------------------------------------------------
@@ -322,17 +522,26 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
     expect(data.headless).toBeDefined();
     expect(data.comparativeSummary).toBeDefined();
 
+    // Ensure headed and headless reflect two distinct benchmark runs rather than fallback clones
+    expect(data.headed.timestamp).not.toBe(data.headless.timestamp);
+
     expect(data.headed.mode).toBe('headed');
     expect(data.headed.totalMoves).toBeGreaterThan(0);
     expect(data.headed.movesPerSecond).toBeGreaterThan(0);
+    expect(data.headed.domOverhead.iterations).toBeGreaterThan(0);
     expect(data.headed.domOverhead.overheadRatio).toBeGreaterThan(1);
+    expect(data.headed.rendering.sampleCount).toBeGreaterThan(0);
     expect(data.headed.rendering.measuredFps).toBeGreaterThan(0);
+    expect(data.headed.tileMilestones['128']?.reached).toBe(true);
 
     expect(data.headless.mode).toBe('headless');
     expect(data.headless.totalMoves).toBeGreaterThan(0);
     expect(data.headless.movesPerSecond).toBeGreaterThan(0);
+    expect(data.headless.domOverhead.iterations).toBeGreaterThan(0);
     expect(data.headless.domOverhead.overheadRatio).toBeGreaterThan(1);
+    expect(data.headless.rendering.sampleCount).toBeGreaterThan(0);
     expect(data.headless.rendering.measuredFps).toBeGreaterThan(0);
+    expect(data.headless.tileMilestones['128']?.reached).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -421,7 +630,7 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
     });
     expect(overResult.terminationReason).toBe('GameOver');
 
-    // D. Guard 1 (Win) verification on live page
+    // D. Guard 1 (Win) verification on live page (halt & keepPlayingOnWin)
     await page.evaluate((sel) => {
       const msg = document.querySelector(sel.gameMessage);
       if (msg) {
@@ -437,8 +646,53 @@ test.describe('Phase 10: Acceptance Criteria & Final Audit', () => {
     });
     expect(winResult.terminationReason).toBe('GameWon');
 
-    // Clean up injected classes and verify readBoard still reads cleanly
+    const keepPlayingResult = await runBot(page, {
+      maxMoves: 2,
+      strategy: 'lookahead',
+      keepPlayingOnWin: true,
+      moveDelayMs: 0,
+    });
+    expect(keepPlayingResult.totalMoves).toBe(2);
+    expect(keepPlayingResult.terminationReason).toBe('MoveCapReached');
+
+    // E. Guard 2 (Deadlocked board with zero valid moves and no .game-over class)
+    await page.evaluate((sel) => {
+      const msg = document.querySelector(sel.gameMessage);
+      if (msg) msg.classList.remove('game-over', 'game-won');
+      const container = document.querySelector(sel.tileContainer);
+      if (container) {
+        container.innerHTML = '';
+        const matrix = [
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+        ];
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            const tile = document.createElement('div');
+            tile.className = `tile tile-${matrix[r][c]} tile-position-${c + 1}-${r + 1}`;
+            const inner = document.createElement('div');
+            inner.className = 'tile-inner';
+            inner.textContent = matrix[r][c].toString();
+            tile.appendChild(inner);
+            container.appendChild(tile);
+          }
+        }
+      }
+    }, SELECTORS);
+    const deadlockedResult = await runBot(page, {
+      maxMoves: 10,
+      strategy: 'lookahead',
+      moveDelayMs: 0,
+    });
+    expect(deadlockedResult.totalMoves).toBe(0);
+    expect(deadlockedResult.terminationReason).toBe('Deadlocked');
+
+    // Verify readBoard reads cleanly with terminal classes removed
     const finalParsed = await readBoard(page);
     expect(finalParsed.board.length).toBe(4);
+    expect(finalParsed.isGameOver).toBe(false);
+    expect(finalParsed.isGameWon).toBe(false);
   });
 });

@@ -12,7 +12,7 @@ The engineer has clear, evidence-based insight into Playwright's capabilities an
 We build an autonomous, deterministic 2048 bot using Playwright and TypeScript that continuously reads the live DOM board state and dispatches directional keystrokes without AI or external solvers. In doing so, we stress-test and document Playwright's synchronization limits, animation handling, and failure modes to produce an empirical reference guide for future browser automation systems.
 
 ## 4. Strategy (Guiding Policy / claude.md)
-We operate strictly as an external user via deterministic Playwright automation, parsing live DOM elements into a 4x4 matrix and dispatching keyboard events guided by algorithmic decision rules and hard loop termination guards. We explicitly reject AI models, computer-vision solvers, internal game-engine JavaScript injection, and arbitrary sleep timers, requiring all synchronization to be solved through authentic DOM state transitions. Every animation race condition, timing bottleneck, or Playwright constraint encountered is systematically surfaced and logged as an architectural finding rather than bypassed with fragile workarounds.
+We operate strictly as an external user via deterministic Playwright automation, parsing live DOM elements into a 4x4 matrix and dispatching keyboard events guided by algorithmic decision rules and hard loop termination guards. We explicitly reject AI models, computer-vision solvers, internal game-engine JavaScript injection, and arbitrary sleep timers for state synchronization—requiring all move-to-move synchronization to be solved through authentic DOM state transitions, while permitting an explicit configurable visual pacing delay (`MOVE_DELAY_MS=100` by default, `0` in benchmarks) solely for comfortable human observation in headed runs. Every animation race condition, timing bottleneck, or Playwright constraint encountered is systematically surfaced and logged as an architectural finding rather than bypassed with fragile workarounds.
 
 ## 5. Plan
 1. Set up the TypeScript and Playwright environment, map live 2048 DOM selectors, and construct an animation-tolerant parser that translates active tile elements into a clean 4x4 matrix.
@@ -73,7 +73,7 @@ Current milestone: **Milestone Complete (Phases 1–10)**. All 110 unit, algorit
         ||  6. STATE                                      ||
         ||  "Graduation checkup passed! All 110 tests     ||
         ||   say our robot uses real eyes, real keys,     ||
-        ||   zero sleeps, zero cheating, and hits big     ||
+        ||   no sleep-waits, no cheating, and hits big    ||
         ||   blocks (256/512/1024) smoothly!"             ||
         ||================================================||
 ```
