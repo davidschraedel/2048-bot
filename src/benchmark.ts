@@ -117,16 +117,38 @@ export interface BenchmarkSessionOptions {
 }
 
 /**
- * Options for running the full comparative benchmark (headed vs headless).
+ * Options for running the comparative or individual execution benchmarks.
  */
 export interface ComparativeBenchmarkOptions {
   maxMoves?: number;
   strategy?: StrategyType;
   benchmarkTiles?: number[];
   outputPath?: string;
+  historyPath?: string;
   domIterations?: number;
   frameSamples?: number;
   logProgress?: boolean;
+  benchmarkMode?: 'comparative' | 'headed' | 'headless';
+  forceHeadless?: boolean;
+}
+
+/**
+ * Historical benchmark execution record appended to the benchmark history ledger.
+ */
+export interface BenchmarkHistoryEntry {
+  timestamp: string;
+  mode: 'headed' | 'headless';
+  totalMoves: number;
+  durationMs: number;
+  movesPerSecond: number;
+  averageLatencyMs: number;
+  latencyP50: number;
+  latencyP95: number;
+  finalScore: number;
+  highestTile: number;
+  terminationReason: TerminationReason;
+  domOverheadRatio?: number;
+  measuredFps?: number;
 }
 
 /**
@@ -355,16 +377,13 @@ export async function runBenchmarkSession(
   // 2. Measure rendering performance in browser context
   const rendering = await measureRenderingPerformance(page, frameSamples);
 
-  // 3. Measure DOM query overhead (Locators vs batch evaluate)
-  const domOverhead = await measureDomQueryOverhead(page, domIterations);
-
-  // 4. Initialize milestone tracking dictionary
+  // 3. Initialize milestone tracking dictionary
   const tileMilestones: Record<number, TileMilestone> = {};
   for (const t of targetTiles) {
     tileMilestones[t] = { tile: t, reached: false };
   }
 
-  // 5. Execute autonomous loop with raw throughput (moveDelayMs: 0)
+  // 4. Execute autonomous loop with raw throughput (moveDelayMs: 0)
   const loopStartTime = performance.now();
 
   const botResult: BotRunResult = await runBot(
@@ -399,6 +418,9 @@ export async function runBenchmarkSession(
       },
     }
   );
+
+  // 5. Measure DOM query overhead (Locators vs batch evaluate) on active/populated board
+  const domOverhead = await measureDomQueryOverhead(page, domIterations);
 
   const percentiles = calculateLatencyPercentiles(botResult.moveLatencies);
 
@@ -435,7 +457,14 @@ export async function runComparativeBenchmark(
   const strategy = options?.strategy ?? 'lookahead';
   const targetTiles = options?.benchmarkTiles ?? [128, 256, 512];
   const outputPath = options?.outputPath ?? 'test-results/benchmark-data.json';
+  const historyPath = options?.historyPath;
   const logProgress = options?.logProgress ?? true;
+  const benchmarkMode: 'comparative' | 'headed' | 'headless' =
+    options?.benchmarkMode ??
+    (process.env.BENCHMARK_MODE === 'headed' || process.env.BENCHMARK_MODE === 'headless'
+      ? (process.env.BENCHMARK_MODE as 'headed' | 'headless')
+      : 'comparative');
+  const forceHeadless = options?.forceHeadless ?? false;
 
   if (logProgress) {
     console.log('\n╔══════════════════════════════════════════════════════════════════════════════╗');
@@ -444,112 +473,165 @@ export async function runComparativeBenchmark(
     console.log(`  Strategy:           ${strategy}`);
     console.log(`  Move Cap per Mode:  ${maxMoves} moves`);
     console.log(`  Target Tiles:       ${targetTiles.join(', ')}`);
+    console.log(`  Benchmark Mode:     ${benchmarkMode}`);
     console.log(`  Output Path:        ${outputPath}\n`);
   }
 
-  // ---------------------------------------------------------------------------
-  // 1. Headed Chromium Benchmark Run
-  // ---------------------------------------------------------------------------
-  if (logProgress) console.log('▶ [1/2] Launching Headed Chromium Benchmark Run...');
-  let headedBrowser: Browser | null = null;
-  let headedData!: BenchmarkModeData;
-
-  try {
-    headedBrowser = await chromium.launch({
-      headless: false,
-      args: ['--window-size=1280,900'],
-    });
-    const context = await headedBrowser.newContext({
-      viewport: { width: 1280, height: 900 },
-    });
-    const page = await context.newPage();
-
-    headedData = await runBenchmarkSession(page, {
-      mode: 'headed',
-      maxMoves,
-      strategy,
-      benchmarkTiles: targetTiles,
-      domIterations: options?.domIterations,
-      frameSamples: options?.frameSamples,
-    });
-
-    await context.close();
-  } finally {
-    if (headedBrowser) {
-      await headedBrowser.close().catch(() => {});
+  // Load existing report if available so single-mode runs (headed-only or headless-only) preserve counterpart data
+  const resolvedOutputPath = path.isAbsolute(outputPath)
+    ? outputPath
+    : path.resolve(process.cwd(), outputPath);
+  let existingReport: BenchmarkReport | null = null;
+  if (fs.existsSync(resolvedOutputPath)) {
+    try {
+      existingReport = JSON.parse(fs.readFileSync(resolvedOutputPath, 'utf-8'));
+    } catch {
+      existingReport = null;
     }
   }
 
-  if (logProgress) {
-    console.log(`  ✓ Headed Run Finished: ${headedData.totalMoves} moves in ${(headedData.durationMs / 1000).toFixed(2)}s (${headedData.movesPerSecond} MPS, avg latency: ${headedData.averageLatencyMs}ms)`);
-  }
+  let headedData: BenchmarkModeData | null = null;
+  let headlessData: BenchmarkModeData | null = null;
 
   // ---------------------------------------------------------------------------
-  // 2. Headless Chromium Benchmark Run
+  // 1. Headed Chromium Benchmark Run (if comparative or headed)
   // ---------------------------------------------------------------------------
-  if (logProgress) console.log('\n▶ [2/2] Launching Headless Chromium Benchmark Run...');
-  let headlessBrowser: Browser | null = null;
-  let headlessData!: BenchmarkModeData;
-
-  try {
-    headlessBrowser = await chromium.launch({
-      headless: true,
-      args: ['--window-size=1280,900'],
-    });
-    const context = await headlessBrowser.newContext({
-      viewport: { width: 1280, height: 900 },
-    });
-    const page = await context.newPage();
-
-    headlessData = await runBenchmarkSession(page, {
-      mode: 'headless',
-      maxMoves,
-      strategy,
-      benchmarkTiles: targetTiles,
-      domIterations: options?.domIterations,
-      frameSamples: options?.frameSamples,
-    });
-
-    await context.close();
-  } finally {
-    if (headlessBrowser) {
-      await headlessBrowser.close().catch(() => {});
+  if (benchmarkMode === 'comparative' || benchmarkMode === 'headed') {
+    if (logProgress) {
+      console.log(
+        `▶ [${benchmarkMode === 'comparative' ? '1/2' : '1/1'}] Launching Headed Chromium Benchmark Run${
+          forceHeadless ? ' (simulated headless)' : ''
+        }...`
+      );
     }
+    let headedBrowser: Browser | null = null;
+
+    try {
+      headedBrowser = await chromium.launch({
+        headless: forceHeadless ? true : false,
+        args: ['--window-size=1280,900'],
+      });
+      const context = await headedBrowser.newContext({
+        viewport: { width: 1280, height: 900 },
+      });
+      const page = await context.newPage();
+
+      headedData = await runBenchmarkSession(page, {
+        mode: 'headed',
+        maxMoves,
+        strategy,
+        benchmarkTiles: targetTiles,
+        domIterations: options?.domIterations,
+        frameSamples: options?.frameSamples,
+      });
+
+      await context.close();
+    } finally {
+      if (headedBrowser) {
+        await headedBrowser.close().catch(() => {});
+      }
+    }
+
+    if (logProgress && headedData) {
+      console.log(
+        `  ✓ Headed Run Finished: ${headedData.totalMoves} moves in ${(
+          headedData.durationMs / 1000
+        ).toFixed(2)}s (${headedData.movesPerSecond} MPS, avg latency: ${
+          headedData.averageLatencyMs
+        }ms)`
+      );
+    }
+  } else if (existingReport?.headed) {
+    headedData = existingReport.headed;
   }
 
-  if (logProgress) {
-    console.log(`  ✓ Headless Run Finished: ${headlessData.totalMoves} moves in ${(headlessData.durationMs / 1000).toFixed(2)}s (${headlessData.movesPerSecond} MPS, avg latency: ${headlessData.averageLatencyMs}ms)`);
+  // ---------------------------------------------------------------------------
+  // 2. Headless Chromium Benchmark Run (if comparative or headless)
+  // ---------------------------------------------------------------------------
+  if (benchmarkMode === 'comparative' || benchmarkMode === 'headless') {
+    if (logProgress) {
+      console.log(
+        `\n▶ [${benchmarkMode === 'comparative' ? '2/2' : '1/1'}] Launching Headless Chromium Benchmark Run...`
+      );
+    }
+    let headlessBrowser: Browser | null = null;
+
+    try {
+      headlessBrowser = await chromium.launch({
+        headless: true,
+        args: ['--window-size=1280,900'],
+      });
+      const context = await headlessBrowser.newContext({
+        viewport: { width: 1280, height: 900 },
+      });
+      const page = await context.newPage();
+
+      headlessData = await runBenchmarkSession(page, {
+        mode: 'headless',
+        maxMoves,
+        strategy,
+        benchmarkTiles: targetTiles,
+        domIterations: options?.domIterations,
+        frameSamples: options?.frameSamples,
+      });
+
+      await context.close();
+    } finally {
+      if (headlessBrowser) {
+        await headlessBrowser.close().catch(() => {});
+      }
+    }
+
+    if (logProgress && headlessData) {
+      console.log(
+        `  ✓ Headless Run Finished: ${headlessData.totalMoves} moves in ${(
+          headlessData.durationMs / 1000
+        ).toFixed(2)}s (${headlessData.movesPerSecond} MPS, avg latency: ${
+          headlessData.averageLatencyMs
+        }ms)`
+      );
+    }
+  } else if (existingReport?.headless) {
+    headlessData = existingReport.headless;
+  }
+
+  // Fallback defaults if running single-mode without pre-existing counterpart data
+  if (!headedData && headlessData) {
+    headedData = { ...headlessData, mode: 'headed' };
+  }
+  if (!headlessData && headedData) {
+    headlessData = { ...headedData, mode: 'headless' };
   }
 
   // ---------------------------------------------------------------------------
   // 3. Cross-Mode Comparative Summary Calculation
   // ---------------------------------------------------------------------------
   const speedupFactor =
-    headedData.movesPerSecond > 0
-      ? Math.round((headlessData.movesPerSecond / headedData.movesPerSecond) * 100) / 100
+    headedData!.movesPerSecond > 0
+      ? Math.round((headlessData!.movesPerSecond / headedData!.movesPerSecond) * 100) / 100
       : 1.0;
 
   const fasterMode: 'headed' | 'headless' | 'equal' =
-    headlessData.movesPerSecond > headedData.movesPerSecond
+    headlessData!.movesPerSecond > headedData!.movesPerSecond
       ? 'headless'
-      : headedData.movesPerSecond > headlessData.movesPerSecond
+      : headedData!.movesPerSecond > headlessData!.movesPerSecond
       ? 'headed'
       : 'equal';
 
   const throughputDiffMps =
-    Math.round((headlessData.movesPerSecond - headedData.movesPerSecond) * 100) / 100;
+    Math.round((headlessData!.movesPerSecond - headedData!.movesPerSecond) * 100) / 100;
   const latencyDiffMs =
-    Math.round((headedData.averageLatencyMs - headlessData.averageLatencyMs) * 100) / 100;
+    Math.round((headedData!.averageLatencyMs - headlessData!.averageLatencyMs) * 100) / 100;
 
   const avgLocatorRatio =
     Math.round(
-      ((headedData.domOverhead.overheadRatio + headlessData.domOverhead.overheadRatio) / 2) *
+      ((headedData!.domOverhead.overheadRatio + headlessData!.domOverhead.overheadRatio) / 2) *
         100
     ) / 100;
 
   const animationDelayDiffMs =
     Math.round(
-      (headedData.rendering.doubleRafSettlingMs - headlessData.rendering.doubleRafSettlingMs) *
+      (headedData!.rendering.doubleRafSettlingMs - headlessData!.rendering.doubleRafSettlingMs) *
         100
     ) / 100;
 
@@ -574,14 +656,14 @@ export async function runComparativeBenchmark(
       moveDelayMs: 0,
     },
     comparativeSummary: summary,
-    headed: headedData,
-    headless: headlessData,
+    headed: headedData!,
+    headless: headlessData!,
   };
 
   // ---------------------------------------------------------------------------
-  // 4. Save Dataset to test-results/benchmark-data.json
+  // 4. Save Dataset to output path and historical ledger
   // ---------------------------------------------------------------------------
-  saveBenchmarkData(report, outputPath);
+  saveBenchmarkData(report, outputPath, historyPath);
 
   // ---------------------------------------------------------------------------
   // 5. Render Formatted Comparative Table
@@ -599,11 +681,13 @@ export async function runComparativeBenchmark(
  *
  * @param report - Complete BenchmarkReport payload.
  * @param outputPath - Output file path.
+ * @param historyPath - Optional explicit history ledger file path.
  * @returns Resolved absolute path of the persisted JSON file.
  */
 export function saveBenchmarkData(
   report: BenchmarkReport,
-  outputPath: string = 'test-results/benchmark-data.json'
+  outputPath: string = 'test-results/benchmark-data.json',
+  historyPath?: string
 ): string {
   const resolvedPath = path.isAbsolute(outputPath)
     ? outputPath
@@ -615,7 +699,114 @@ export function saveBenchmarkData(
   }
 
   fs.writeFileSync(resolvedPath, JSON.stringify(report, null, 2), 'utf-8');
+
+  // Automatically record to historical ledger if historyPath is specified,
+  // or by default when writing to canonical benchmark-data.json
+  const defaultHistoryPath = path.resolve(
+    path.dirname(resolvedPath),
+    'benchmark-history.jsonl'
+  );
+  const targetHistory = historyPath
+    ? historyPath
+    : resolvedPath.endsWith('benchmark-data.json')
+    ? defaultHistoryPath
+    : undefined;
+
+  if (targetHistory) {
+    appendBenchmarkHistory(report, targetHistory);
+  }
+
   return resolvedPath;
+}
+
+/**
+ * Appends benchmark execution records to an append-only JSON Lines history ledger.
+ *
+ * @param report - Complete BenchmarkReport payload.
+ * @param historyPath - Path to benchmark-history.jsonl.
+ * @returns Resolved absolute path to history file.
+ */
+export function appendBenchmarkHistory(
+  report: BenchmarkReport,
+  historyPath: string = 'test-results/benchmark-history.jsonl'
+): string {
+  const resolvedPath = path.isAbsolute(historyPath)
+    ? historyPath
+    : path.resolve(process.cwd(), historyPath);
+
+  const dir = path.dirname(resolvedPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const entries: BenchmarkHistoryEntry[] = [];
+
+  if (report.headed && report.headed.totalMoves > 0) {
+    entries.push({
+      timestamp: report.headed.timestamp,
+      mode: 'headed',
+      totalMoves: report.headed.totalMoves,
+      durationMs: report.headed.durationMs,
+      movesPerSecond: report.headed.movesPerSecond,
+      averageLatencyMs: report.headed.averageLatencyMs,
+      latencyP50: report.headed.latencyPercentiles.p50,
+      latencyP95: report.headed.latencyPercentiles.p95,
+      finalScore: report.headed.finalScore,
+      highestTile: report.headed.highestTile,
+      terminationReason: report.headed.terminationReason,
+      domOverheadRatio: report.headed.domOverhead?.overheadRatio,
+      measuredFps: report.headed.rendering?.measuredFps,
+    });
+  }
+
+  if (report.headless && report.headless.totalMoves > 0) {
+    entries.push({
+      timestamp: report.headless.timestamp,
+      mode: 'headless',
+      totalMoves: report.headless.totalMoves,
+      durationMs: report.headless.durationMs,
+      movesPerSecond: report.headless.movesPerSecond,
+      averageLatencyMs: report.headless.averageLatencyMs,
+      latencyP50: report.headless.latencyPercentiles.p50,
+      latencyP95: report.headless.latencyPercentiles.p95,
+      finalScore: report.headless.finalScore,
+      highestTile: report.headless.highestTile,
+      terminationReason: report.headless.terminationReason,
+      domOverheadRatio: report.headless.domOverhead?.overheadRatio,
+      measuredFps: report.headless.rendering?.measuredFps,
+    });
+  }
+
+  if (entries.length > 0) {
+    const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    fs.appendFileSync(resolvedPath, lines, 'utf-8');
+  }
+
+  return resolvedPath;
+}
+
+/**
+ * Loads all benchmark execution history records from the append-only history ledger.
+ *
+ * @param historyPath - Path to benchmark-history.jsonl.
+ * @returns Array of historical BenchmarkHistoryEntry objects.
+ */
+export function loadBenchmarkHistory(
+  historyPath: string = 'test-results/benchmark-history.jsonl'
+): BenchmarkHistoryEntry[] {
+  const resolvedPath = path.isAbsolute(historyPath)
+    ? historyPath
+    : path.resolve(process.cwd(), historyPath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    return [];
+  }
+
+  const content = fs.readFileSync(resolvedPath, 'utf-8');
+  return content
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as BenchmarkHistoryEntry);
 }
 
 /**

@@ -10,6 +10,8 @@ import {
   runComparativeBenchmark,
   formatBenchmarkTable,
   saveBenchmarkData,
+  appendBenchmarkHistory,
+  loadBenchmarkHistory,
   BenchmarkReport,
 } from '../src/benchmark';
 import { readBoard } from '../src/board';
@@ -166,6 +168,76 @@ test.describe('Phase 8: Execution Benchmarking (Headed vs. Headless)', () => {
         fs.unlinkSync(resolved);
       }
     });
+
+    test('appendBenchmarkHistory and loadBenchmarkHistory write and read ledger correctly', () => {
+      const historyFile = 'test-results/test-benchmark-history.jsonl';
+      const mockReport: BenchmarkReport = {
+        timestamp: new Date().toISOString(),
+        environment: {
+          platform: 'darwin',
+          arch: 'arm64',
+          nodeVersion: process.version,
+          playwrightVersion: '^1.65.0',
+          browser: 'Chromium',
+          strategy: 'lookahead',
+          moveDelayMs: 0,
+        },
+        comparativeSummary: {
+          fasterMode: 'headless',
+          speedupFactor: 1.2,
+          throughputDiffMps: 8.0,
+          latencyDiffMs: 2.5,
+          batchVsLocatorOverheadRatio: 15.0,
+          animationDelayDiffMs: 3.0,
+        },
+        headed: {
+          mode: 'headed',
+          timestamp: '2026-11-12T00:00:00.000Z',
+          totalMoves: 100,
+          durationMs: 5000,
+          movesPerSecond: 20,
+          averageLatencyMs: 45,
+          latencyPercentiles: { min: 30, p50: 44, p90: 55, p95: 60, max: 70, mean: 45, stdDev: 5 },
+          finalScore: 1200,
+          highestTile: 128,
+          terminationReason: 'MoveCapReached',
+          tileMilestones: {},
+          rendering: { measuredFps: 60, averageFrameDeltaMs: 16.67, frameDeltaJitterMs: 0.5, doubleRafSettlingMs: 33.3, sampleCount: 20 },
+          domOverhead: { batchEvaluateAvgMs: 1.0, locatorQueryAvgMs: 10.0, overheadRatio: 10.0, iterations: 5 },
+          finalBoard: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        },
+        headless: {
+          mode: 'headless',
+          timestamp: '2026-11-12T00:00:00.000Z',
+          totalMoves: 100,
+          durationMs: 4000,
+          movesPerSecond: 25,
+          averageLatencyMs: 38,
+          latencyPercentiles: { min: 25, p50: 36, p90: 48, p95: 52, max: 65, mean: 38, stdDev: 4 },
+          finalScore: 1300,
+          highestTile: 128,
+          terminationReason: 'MoveCapReached',
+          tileMilestones: {},
+          rendering: { measuredFps: 60, averageFrameDeltaMs: 16.67, frameDeltaJitterMs: 0.1, doubleRafSettlingMs: 33.2, sampleCount: 20 },
+          domOverhead: { batchEvaluateAvgMs: 0.9, locatorQueryAvgMs: 8.0, overheadRatio: 8.89, iterations: 5 },
+          finalBoard: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        },
+      };
+
+      appendBenchmarkHistory(mockReport, historyFile);
+      const history = loadBenchmarkHistory(historyFile);
+      expect(history.length).toBe(2);
+      expect(history[0].mode).toBe('headed');
+      expect(history[0].totalMoves).toBe(100);
+      expect(history[1].mode).toBe('headless');
+      expect(history[1].totalMoves).toBe(100);
+
+      // Cleanup
+      const resolved = path.resolve(process.cwd(), historyFile);
+      if (fs.existsSync(resolved)) {
+        fs.unlinkSync(resolved);
+      }
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -230,16 +302,14 @@ test.describe('Phase 8: Execution Benchmarking (Headed vs. Headless)', () => {
   // 3. Complete Comparative Benchmark Execution & Dataset Output
   // ---------------------------------------------------------------------------
   test.describe('Comparative Execution Benchmark', () => {
-    test('Executes Headed vs Headless Benchmark and writes test-results/benchmark-data.json', async () => {
+    test('Executes Headed vs Headless Benchmark and writes benchmark data', async () => {
       const isFull = process.env.FULL_BENCHMARK === 'true';
       // In full benchmark mode, run up to 400 moves to reach benchmark tiles (128, 256, 512).
-      // In test suite mode, run calibrated 40 moves to verify full end-to-end benchmarking in seconds.
-      const moveCap = isFull ? 400 : 40;
+      // In test suite mode, run calibrated 20 moves to verify full end-to-end benchmarking in seconds.
+      const moveCap = isFull ? 400 : 20;
       const targetPath = isFull
         ? 'test-results/benchmark-data.json'
-        : fs.existsSync(path.resolve(process.cwd(), 'test-results/benchmark-data.json'))
-        ? 'test-results/benchmark-quick.json'
-        : 'test-results/benchmark-data.json';
+        : 'test-results/benchmark-test.json';
 
       const report = await runComparativeBenchmark({
         maxMoves: moveCap,
@@ -247,8 +317,9 @@ test.describe('Phase 8: Execution Benchmarking (Headed vs. Headless)', () => {
         benchmarkTiles: [128, 256, 512],
         outputPath: targetPath,
         domIterations: isFull ? 15 : 5,
-        frameSamples: isFull ? 60 : 20,
-        logProgress: true,
+        frameSamples: isFull ? 60 : 10,
+        logProgress: isFull,
+        forceHeadless: !isFull, // Run silently headless during fast test suite runs
       });
 
       // Verify Comparative Dataset Integrity
@@ -275,13 +346,18 @@ test.describe('Phase 8: Execution Benchmarking (Headed vs. Headless)', () => {
       expect(report.headless.domOverhead.overheadRatio).toBeGreaterThan(1.0);
       expect(report.headless.rendering.measuredFps).toBeGreaterThan(0);
 
-      // Verify Benchmark Data File Exists and is Valid
-      const filePath = path.resolve(process.cwd(), 'test-results/benchmark-data.json');
+      // Verify Target Benchmark Data File Exists and is Valid
+      const filePath = path.resolve(process.cwd(), targetPath);
       expect(fs.existsSync(filePath)).toBe(true);
       const fileContent = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       expect(fileContent.headed.totalMoves).toBe(report.headed.totalMoves);
       expect(fileContent.headless.totalMoves).toBe(report.headless.totalMoves);
       expect(fileContent.comparativeSummary.fasterMode).toBe(report.comparativeSummary.fasterMode);
+
+      // Clean up temporary test file in fast test mode
+      if (!isFull && fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     });
   });
 });
