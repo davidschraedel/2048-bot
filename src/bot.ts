@@ -113,6 +113,20 @@ export async function ensureActiveFocus(page: Page): Promise<void> {
  */
 export async function dismissUnexpectedModals(page: Page): Promise<void> {
   try {
+    // Dismiss c15t Shadow DOM consent banner or Privacy Settings dialog via real click (classic.play2048.co)
+    const c15tHost = typeof page.locator === 'function' ? page.locator('[data-c15t-ui]') : null;
+    if (c15tHost && typeof c15tHost.getByRole === 'function') {
+      const consentButton = c15tHost
+        .getByRole('button', { name: /^(Reject All|Accept All)$/i })
+        .first();
+      if (
+        (await consentButton.count().catch(() => 0)) > 0 &&
+        (await consentButton.isVisible().catch(() => false))
+      ) {
+        await consentButton.click({ timeout: 2000 }).catch(() => {});
+      }
+    }
+
     await page
       .evaluate(() => {
         const modalSelectors = [
@@ -241,10 +255,11 @@ export async function runBot(
       // -------------------------------------------------------------
       if (currentState.isGameWon) {
         if (config.keepPlayingOnWin) {
+          await dismissUnexpectedModals(page);
           const keepPlayingBtn = page.locator(SELECTORS.keepPlayingButton);
           try {
             await keepPlayingBtn.waitFor({ state: 'visible', timeout: 2000 });
-            await keepPlayingBtn.click();
+            await keepPlayingBtn.click({ timeout: 2000 });
             // Await game-won modal clearance
             await page
               .waitForFunction(

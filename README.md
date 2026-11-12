@@ -1,6 +1,6 @@
 # 2048 Playwright Bot
 
-An automated bot that plays the original DOM-based web version of [2048](https://gabrielecirulli.github.io/2048/) dynamically using [Playwright](https://playwright.dev/) and TypeScript, without LLMs, external solvers, or human intervention.
+An automated bot that plays the original DOM-based web version of [2048](https://classic.play2048.co/) dynamically using [Playwright](https://playwright.dev/) and TypeScript, without LLMs, external solvers, or human intervention.
 
 ---
 
