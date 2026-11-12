@@ -59,3 +59,12 @@ npm run play
 # Or directly with Playwright:
 npx playwright test tests/bot-2048.spec.ts --headed
 ```
+
+---
+
+## Documentation & Empirical Findings
+
+- [Steering Ladder](aiDocs/steering-ladder.md) — Strategic alignment, mission, and progress state.
+- [Playwright Synchronization Findings](aiDocs/playwright-synchronization-findings.md) — Empirical research guide on closed-loop DOM synchronization, animation race conditions, and performance benchmarks.
+- [Engineering Conventions & Coding Style](aiDocs/coding-style.md) — Architecture and Playwright conventions.
+- [Implementation Roadmap](ai/roadmaps/2026-11-09_v1_roadmap.md) — Phase-by-phase execution tracking.

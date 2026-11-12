@@ -20,7 +20,7 @@ We operate strictly as an external user via deterministic Playwright automation,
 3. Run execution benchmarks in both headed and headless modes to capture performance metrics and compile an empirical findings document detailing observed Playwright synchronization quirks, bottlenecks, and design recommendations.
 
 ## 6. State
-Phases 1 through 8 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
+Phases 1 through 9 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
 1. **Phase 1 (Environment & Project Setup)**: Complete (`package.json`, `playwright.config.ts`, `tsconfig.json`, `.env`, `src/storage.ts`).
 2. **Phase 2 (DOM Inspection & Selector Mapping)**: Complete (`src/selectors.ts`, destination coordinate resolution, merge deduplication schema).
 3. **Phase 3 (Board State Representation & Parser)**: Complete (`src/board.ts`, `tests/board.spec.ts`).
@@ -29,8 +29,9 @@ Phases 1 through 8 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roa
 6. **Phase 6 (Core Automation Loop & Triple Termination Safety)**: Complete (`src/config.ts`, `src/bot.ts`, `tests/bot-2048.spec.ts`, `tests/guards.spec.ts`, `npm run play` with pristine session setup, triple termination safety guards [Win, Loss/Deadlock, Move Cap], visual pacing, post-game inspection, and end-to-end autonomous loop).
 7. **Phase 7 (Observability, Metrics & Telemetry)**: Complete (`src/telemetry.ts`, `tests/telemetry.spec.ts`, `tests/bot-2048.spec.ts` with macro milestone `test.step()` trace memory throttling, live CLI status line with sync latency, comprehensive ASCII board run summary, throughput [MPS] metrics, explicit termination reasons, and automatic board screenshot persistence to `test-results/final-run.png`).
 8. **Phase 8 (Execution Benchmarking: Headed vs. Headless)**: Complete (`src/benchmark.ts`, `tests/benchmark.spec.ts`, `test-results/benchmark-data.json`, `test-results/benchmark-history.jsonl`, `package.json` benchmark scripts `test:headed`, `test:headless`, `benchmark`, `benchmark:headed`, `benchmark:headless` with `MOVE_DELAY_MS=0` raw pacing, average move-to-mutation latency percentiles, 6x-10x locator vs. batch `evaluate()` overhead measurement, 60fps rendering frame rate and double-rAF delay sampling, and benchmark milestone tracking for 128, 256, and 512 tiles).
+9. **Phase 9 (Empirical Findings Catalog & Reference Guide)**: Complete (`aiDocs/playwright-synchronization-findings.md` authoring complete; documents transient multi-class and merge triplicate race conditions, CDP roundtrip penalties with 8.16x batch `evaluate()` efficiency gain, 19.12 vs 19.35 MPS comparative headless parity with 8.3x frame jitter stability, double-rAF layout settling barriers, input throttling queue saturation, macro milestone trace memory safety, and actionable design patterns vs anti-patterns).
 
-Current milestone: Transitioning to **Phase 9** (Empirical Findings Catalog & Reference Guide: `../aiDocs/playwright-synchronization-findings.md`). All 101 unit, algorithmic, browser synchronization, guard, telemetry, and benchmark tests pass across headed and headless Chromium.
+Current milestone: Transitioning to **Phase 10** (Acceptance Criteria & Final Audit). All 102 unit, algorithmic, browser synchronization, guard, telemetry, and benchmark tests pass across headed and headless Chromium.
 
 ---
 
@@ -69,11 +70,11 @@ Current milestone: Transitioning to **Phase 9** (Empirical Findings Catalog & Re
         ||                       ||                       ||
         ||================================================||
         ||  6. STATE                                      ||
-        ||  "We raced our robot with the screen ON and   ||
-        ||   the screen OFF! Headless won by a whisker,   ||
-        ||   batch eyes beat pointer eyes by 8x, and we   ||
-        ||   saved all the speed numbers to a scoreboard! ||
-        ||   Next: write the big guidebook of our tricks!"||
+        ||  "We wrote the big guidebook of all our        ||
+        ||   tricks! It tells how we dodge double blocks, ||
+        ||   why batch eyes beat pointer eyes by 8x, and  ||
+        ||   why screen-off robot has super steady hands! ||
+        ||   Next: the final graduation checkup!"         ||
         ||================================================||
 ```
 
