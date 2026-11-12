@@ -6,7 +6,7 @@ Standards and conventions for the **2048 Playwright Bot** codebase.
 
 ## 1. Environment & Stack
 - **Language & Runtime**: TypeScript running under `@playwright/test` on Chromium.
-- **Target Application**: Public web instances of 2048 (e.g., [play2048.co](https://play2048.co/)); no accounts, credentials, or sessions required.
+- **Target Application**: Original DOM-based public 2048 instance ([classic.play2048.co](https://classic.play2048.co/)); no accounts, credentials, or sessions required.
 
 ---
 

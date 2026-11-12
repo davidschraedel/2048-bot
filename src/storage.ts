@@ -1,10 +1,8 @@
 import { Page } from '@playwright/test';
 
 /**
- * Neutralizes the commercial canvas redirect on gabrielecirulli.github.io
- * and blocks slow third-party ad network scripts.
- *
- * This guarantees the clean, original DOM-based 2048 game loads directly.
+ * Blocks third-party analytics and ad network scripts for faster, noise-free
+ * browser execution while leaving the target 2048 HTML/JS untouched.
  *
  * @param page - Active Playwright Page instance.
  */
@@ -12,40 +10,16 @@ export async function setupGameRouting(page: Page): Promise<void> {
   await page.route('**/*', async (route) => {
     const url = route.request().url();
 
-    // Abort commercial canvas redirect destination
-    if (url.includes('play2048.co')) {
-      return route.abort();
-    }
-
     // Block third-party ad/analytics domains for speed and stability
     if (
       url.includes('google-analytics') ||
       url.includes('googletagmanager') ||
       url.includes('pagead2') ||
       url.includes('doubleclick') ||
-      url.includes('twitter.com')
+      url.includes('twitter.com') ||
+      url.includes('cloudflareinsights.com')
     ) {
       return route.abort();
-    }
-
-    // Only intercept HTML document responses to strip the inline redirect
-    if (
-      route.request().resourceType() === 'document' &&
-      url.includes('gabrielecirulli.github.io/2048')
-    ) {
-      try {
-        const response = await route.fetch();
-        let body = await response.text();
-        // Replace play2048 redirect target and disable hostname check
-        body = body.replace(/play2048\.co/g, 'localhost');
-        body = body.replace(
-          /window\.location\.hostname\s*===\s*["']gabrielecirulli\.github\.io["']/g,
-          'false'
-        );
-        return route.fulfill({ response, body });
-      } catch {
-        return route.continue();
-      }
     }
 
     return route.continue();

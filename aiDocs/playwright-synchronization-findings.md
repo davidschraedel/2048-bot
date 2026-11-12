@@ -37,7 +37,7 @@ All empirical metrics and timing distributions were recorded on the following ba
 * **Runtime**: Node.js `v24.13.0`
 * **Test Framework**: `@playwright/test` `^1.65.0`
 * **Browser Engine**: Chromium 143+ (Playwright bundled build)
-* **Target Application**: Original Gabriele Cirulli DOM 2048 engine ([gabrielecirulli.github.io/2048/](https://gabrielecirulli.github.io/2048/), with `setupGameRouting()` blocking the client-side redirect to `play2048.co` and third-party ad/analytics domains)
+* **Target Application**: Original Gabriele Cirulli DOM 2048 engine ([classic.play2048.co](https://classic.play2048.co/), originally benchmarked on `gabrielecirulli.github.io/2048/` with redirect interception; updated to load `classic.play2048.co` directly while `setupGameRouting()` blocks third-party analytics/ad domains)
 * **Active Decision Strategy**: Lookahead Heuristic (smoothness, monotonicity, corner anchoring, empty cell maximization)
 * **Visual Pacing**: `MOVE_DELAY_MS=0` (raw browser throughput; defaults to `100` ms during interactive `npm run play` runs)
 

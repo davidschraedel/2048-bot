@@ -1,7 +1,7 @@
 {
   "name": "2048-bot",
   "version": "1.0.0",
-  "description": "An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/)—no AI, external solvers, or human intervention required.",
+  "description": "An automated bot designed to play the original DOM-based web version of [2048](https://classic.play2048.co/) dynamically using [Playwright](https://playwright.dev/)—no AI, external solvers, or human intervention required.",
   "scripts": {
     "play": "BOT_PLAY=true playwright test tests/bot-2048.spec.ts --headed",
     "start": "npm run play",
