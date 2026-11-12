@@ -16,6 +16,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
 
+  /* Test artifacts directory; isolates ephemeral traces from benchmark data */
+  outputDir: './test-results/.artifacts',
+
   /* Disable test execution timeout (0) to permit long-running bot sessions */
   timeout: 0,
 

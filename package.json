@@ -2,11 +2,15 @@
   "name": "2048-bot",
   "version": "1.0.0",
   "description": "An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/)—no AI, external solvers, or human intervention required.",
-  "main": "index.js",
   "scripts": {
+    "play": "BOT_PLAY=true playwright test tests/bot-2048.spec.ts --headed",
+    "start": "npm run play",
     "test": "playwright test",
-    "test:headed": "playwright test --headed",
-    "test:headless": "playwright test",
+    "test:headed": "MOVE_DELAY_MS=0 playwright test --headed",
+    "test:headless": "MOVE_DELAY_MS=0 playwright test",
+    "benchmark": "FULL_BENCHMARK=true playwright test tests/benchmark.spec.ts",
+    "benchmark:headed": "BENCHMARK_MODE=headed FULL_BENCHMARK=true playwright test tests/benchmark.spec.ts --headed",
+    "benchmark:headless": "BENCHMARK_MODE=headless FULL_BENCHMARK=true playwright test tests/benchmark.spec.ts",
     "typecheck": "tsc --noEmit"
   },
   "repository": {

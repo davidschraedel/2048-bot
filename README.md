@@ -1,6 +1,6 @@
 # 2048 Playwright Bot
 
-An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/)—no AI, external solvers, or human intervention required.
+An automated bot designed to play the web version of [2048](https://play2048.co/) dynamically using [Playwright](https://playwright.dev/), without LLMs, external solvers, or human intervention.
 
 ---
 
@@ -50,9 +50,21 @@ The bot operates on a simple feedback loop:
 - **Language & Runner**: TypeScript, `@playwright/test` (Chromium)
 - **Configuration**: Target URL configured via `.env` (`GAME_URL`)
 
-### Running the Bot (Planned)
+### Running the Bot
 
 ```bash
-# Run the 2048 test in headed mode to watch the bot play
-npx playwright test tests/bot-2048.spec.ts --project=chromium --headed
+# Watch the bot play to completion in a real browser window
+npm run play
+
+# Or directly with Playwright:
+npx playwright test tests/bot-2048.spec.ts --headed
 ```
+
+---
+
+## Documentation & Empirical Findings
+
+- [Steering Ladder](aiDocs/steering-ladder.md) — Strategic alignment, mission, and progress state.
+- [Playwright Synchronization Findings](aiDocs/playwright-synchronization-findings.md) — Empirical research guide on closed-loop DOM synchronization, animation race conditions, and performance benchmarks.
+- [Engineering Conventions & Coding Style](aiDocs/coding-style.md) — Architecture and Playwright conventions.
+- [Implementation Roadmap](ai/roadmaps/2026-11-09_v1_roadmap.md) — Phase-by-phase execution tracking.
