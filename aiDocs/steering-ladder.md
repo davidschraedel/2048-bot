@@ -20,7 +20,7 @@ We operate strictly as an external user via deterministic Playwright automation,
 3. Run execution benchmarks in both headed and headless modes to capture performance metrics and compile an empirical findings document detailing observed Playwright synchronization quirks, bottlenecks, and design recommendations.
 
 ## 6. State
-Phases 1 through 7 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
+Phases 1 through 8 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roadmap.md](../ai/roadmaps/2026-11-09_v1_roadmap.md)) are fully implemented, verified, and audited:
 1. **Phase 1 (Environment & Project Setup)**: Complete (`package.json`, `playwright.config.ts`, `tsconfig.json`, `.env`, `src/storage.ts`).
 2. **Phase 2 (DOM Inspection & Selector Mapping)**: Complete (`src/selectors.ts`, destination coordinate resolution, merge deduplication schema).
 3. **Phase 3 (Board State Representation & Parser)**: Complete (`src/board.ts`, `tests/board.spec.ts`).
@@ -28,8 +28,9 @@ Phases 1 through 7 of the implementation roadmap ([ai/roadmaps/2026-11-09_v1_roa
 5. **Phase 5 (Deterministic Decision Strategies)**: Complete (`src/strategy.ts`, `tests/strategy.spec.ts` with pure in-memory move validator `getValidMoves`, Phase 1 Corner Priority Cycling, Phase 2 Lookahead Heuristic, strategy registry, and 100% test coverage).
 6. **Phase 6 (Core Automation Loop & Triple Termination Safety)**: Complete (`src/config.ts`, `src/bot.ts`, `tests/bot-2048.spec.ts`, `tests/guards.spec.ts`, `npm run play` with pristine session setup, triple termination safety guards [Win, Loss/Deadlock, Move Cap], visual pacing, post-game inspection, and end-to-end autonomous loop).
 7. **Phase 7 (Observability, Metrics & Telemetry)**: Complete (`src/telemetry.ts`, `tests/telemetry.spec.ts`, `tests/bot-2048.spec.ts` with macro milestone `test.step()` trace memory throttling, live CLI status line with sync latency, comprehensive ASCII board run summary, throughput [MPS] metrics, explicit termination reasons, and automatic board screenshot persistence to `test-results/final-run.png`).
+8. **Phase 8 (Execution Benchmarking: Headed vs. Headless)**: Complete (`src/benchmark.ts`, `tests/benchmark.spec.ts`, `test-results/benchmark-data.json`, `package.json` benchmark scripts `test:headed`, `test:headless`, `benchmark`, `benchmark:headed`, `benchmark:headless` with `MOVE_DELAY_MS=0` raw pacing, average move-to-mutation latency percentiles, 6x-10x locator vs. batch `evaluate()` overhead measurement, 60fps rendering frame rate and double-rAF delay sampling, and tile milestones reaching 128, 256, and 512).
 
-Current milestone: Transitioning to **Phase 8** (Execution Benchmarking: Headed vs. Headless). All 94 unit, algorithmic, browser synchronization, guard, telemetry, and autonomous loop tests pass across headed and headless Chromium.
+Current milestone: Transitioning to **Phase 9** (Empirical Findings Catalog & Reference Guide: `../aiDocs/playwright-synchronization-findings.md`). All 101 unit, algorithmic, browser synchronization, guard, telemetry, and benchmark tests pass across headed and headless Chromium.
 
 ---
 
@@ -68,10 +69,11 @@ Current milestone: Transitioning to **Phase 8** (Execution Benchmarking: Headed 
         ||                       ||                       ||
         ||================================================||
         ||  6. STATE                                      ||
-        ||  "The robot tells us what it's doing on every  ||
-        ||   move, draws a pretty number table at the end,||
-        ||   and snaps a nice photo of its winning board! ||
-        ||   Next: race headed vs headless to see speed!" ||
+        ||  "We raced our robot with the screen ON and   ||
+        ||   the screen OFF! Headless won by a whisker,   ||
+        ||   batch eyes beat pointer eyes by 8x, and we   ||
+        ||   saved all the speed numbers to a scoreboard! ||
+        ||   Next: write the big guidebook of our tricks!"||
         ||================================================||
 ```
 

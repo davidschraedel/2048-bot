@@ -15,11 +15,10 @@ test.describe('2048 Autonomous Bot', () => {
 
   test('Plays 2048 to Completion', async ({ page }) => {
     // In automated test suite runs, cap at 15 moves so the test suite finishes quickly;
-    // In full play mode (npm run play, headed mode, or explicit MAX_MOVES), run to full cap.
+    // In full play mode (npm run play or explicit MAX_MOVES), run to full cap.
     const isFullPlay =
       process.env.BOT_PLAY === 'true' ||
-      process.env.MAX_MOVES !== undefined ||
-      !test.info().project.use.headless;
+      process.env.MAX_MOVES !== undefined;
     const moveCap = isFullPlay ? MAX_MOVES : 15;
     // Macro milestone interval: every 100 moves in full runs; every 10 moves in quick test suite runs
     const milestoneInterval = isFullPlay ? 100 : 10;
@@ -101,9 +100,13 @@ test.describe('2048 Autonomous Bot', () => {
     });
 
     // -------------------------------------------------------------------------
-    // Macro Step 5: Post-Game Inspection (Headed mode only)
+    // Macro Step 5: Post-Game Inspection (Headed mode with BOT_PLAY or KEEP_OPEN)
     // -------------------------------------------------------------------------
-    if (!test.info().project.use.headless) {
+    const shouldKeepOpen =
+      (process.env.BOT_PLAY === 'true' && !test.info().project.use.headless) ||
+      process.env.KEEP_OPEN === 'true';
+
+    if (shouldKeepOpen) {
       console.log('👁️ Browser window is kept open so you can inspect the final board.');
       console.log('👉 Close the Chrome browser window when you are done.\n');
       await page.waitForEvent('close', { timeout: 0 }).catch(() => {});
